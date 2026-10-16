@@ -8,20 +8,26 @@ const HERE = import.meta.dirname
 const STATIC_DIR = path.resolve(HERE, '../gateway/static')
 
 /**
- * 构建前只清掉 gateway/static/assets/，不碰别的。
+ * 构建前只清掉产物目录下的 assets/，不碰别的。
  *
  * 为什么不用 emptyOutDir:true —— 那会把 gateway/static/ 整个清空，
- * 而产物目录和服务端可能放在同一处的其它静态资源（历史上有 vendor/，
- * 现在至少还有 dashboard.html 本身）必须保留。宁可精确删除，
- * 也不要一次构建就把不该动的东西删了。
+ * 而产物目录里还有不该由构建决定生死的东西（至少 dashboard.html 本身）。
+ * 宁可精确删除，也不要一次构建就把不该动的东西删了。
+ *
+ * 注意这里的目标取自 **解析后的 outDir**，不是写死的 STATIC_DIR：
+ * scripts/analyze-bundle.mjs 会用临时的 outDir 跑一次分析构建，
+ * 如果写死 STATIC_DIR，那次分析就会把真正的生产资源删掉。
  */
 function cleanAssetsDir(): Plugin {
+  let assetsDir = ''
   return {
     name: 'wbgw-clean-assets',
     apply: 'build',
+    configResolved(config) {
+      assetsDir = path.join(config.build.outDir, 'assets')
+    },
     buildStart() {
-      const target = path.join(STATIC_DIR, 'assets')
-      fs.rmSync(target, { recursive: true, force: true })
+      if (assetsDir) fs.rmSync(assetsDir, { recursive: true, force: true })
     },
   }
 }

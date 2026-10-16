@@ -34,6 +34,19 @@
 @import "@fontsource-variable/geist-mono";
 
 /**
+ * 不要把 scripts/ 纳入类名扫描。
+ *
+ * Tailwind v4 默认自动扫描整个项目来提取候选类名，而 `scripts/` 下是**Node 脚本**，
+ * 不是 UI 代码。它们里面出现的普通标识符会被当成类名：analyze-bundle.mjs 里写了
+ * `chunks.filter(...)`，于是 Tailwind 就生成了整套 `.filter` / drop-shadow /
+ * brightness / backdrop 工具类（含十几个 @property 声明），凭空多出约 1.2 KB CSS。
+ *
+ * 这类误报会随脚本增多而增长，而且永远不会有人用。显式排除掉。
+ * （`@source not` 的路径相对本文件解析。）
+ */
+@source not "../scripts";
+
+/**
  * 面板固定浅色，**不做主题切换**（明确的产品决定，不是漏做。
  * 原来那一整节 `.dark` token 覆盖已删除，见下面第 3 节的位置说明）。
  *

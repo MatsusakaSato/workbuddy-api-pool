@@ -259,26 +259,53 @@ pnpm run verify:shots    # 顺便刷新 docs/screenshots/
 > 为什么要有这个脚本：截图无法被自动化审查，所以「看起来对不对」必须尽量转成可断言的量。
 > 改完样式跑一遍，避免靠肉眼回归。
 
-### 体积（实测，非估算）
+### 体积（实测，可复现）
 
-| 页面 | 未压缩 | gzip |
+```bash
+cd web
+pnpm run analyze        # 每个 chunk 里到底装了什么（构建到临时目录，不动 gateway/static）
+pnpm run analyze usage  # 只看用量页那个 chunk 的全部模块
+```
+
+**首屏 598.1 KB**（未压缩。网关目前没开 gzip —— 开了之后是 179 KB，那是后端阶段的事）：
+
+| 首屏组成 | 内容 | 大小 |
 |---|---|---|
-| 首屏（外壳 + 概览） | 531 KB | 163 KB |
-| 模型页（额外） | 38 KB | 13 KB |
-| 用量页（额外，主要是 recharts） | 345 KB | 105 KB |
-| 接入页（额外，主要是 shiki 语法包） | 463 KB | 90 KB |
+| 主入口 chunk | react-dom 518 KB + react-router 84 KB + cmdk 16 KB + 本项目源码 59 KB | 325.1 KB |
+| 共享运行时 chunk | sonner 52 KB + TanStack Query core 50 KB + cn 43 KB + 共享组件 23 KB | 176.0 KB |
+| CSS | 设计 token + 全部工具类 | 97.4 KB |
 
-全部分了包：打开面板只付首屏那份，其余按访问的页面付。**网关目前没有开 gzip**
-（那是后端阶段的事），开了之后就是右边那一列。
+其余全部按需，打开某页才付：
 
-两个踩过的坑，都留了断言防回归：
+| 页面 | 额外 | 主要构成 |
+|---|---|---|
+| 概览 | 32.5 KB | 本项目组件 + radix checkbox |
+| 模型 | 39.0 KB | radix select 44 KB |
+| 用量 | 353.5 KB | **recharts 488 KB**（整个前端最贵的一块，只在这页加载） |
+| 接入 | 462.7 KB | shiki 引擎 176 KB + JS 语法 175 KB + Python 70 KB + Shell 41 KB |
 
-- 不拆包时单包 **944 KB**；路由级代码分割后首屏 531 KB，recharts 与 shiki 各自只在对应页面加载。
+字体另有 143.4 KB woff2，按需加载且会被浏览器缓存。
+
+> **不要用 chunk 文件名判断它装了什么。** Rolldown 给自动切出来的共享 chunk 起名时，
+> **取其中一个成员模块**，于是名字和内容可以完全无关：上面那个 `clipboard-*.js` 里
+> 一条 clipboard 代码都没有（它装的是 sonner + TanStack Query + cn），
+> 真正的 ReactDOM 在主入口 chunk 里。这个坑我们真踩过 —— 曾据此错记成
+> 「ReactDOM 在 clipboard chunk 里」。所以有了 `pnpm run analyze`：它接进构建流程，
+> 用真实的 module → chunk 映射按包聚合，别再靠猜。
+
+三个踩过的坑，都留了断言或机制防回归：
+
+- 不拆包时单包 **944 KB**；路由级代码分割后首屏 598.1 KB，recharts 与 shiki 各自只在对应页面加载。
 - 高亮 Node 片段一开始用了 `typescript` 语法，但它一个类型标注都没有 ——
   改用 `javascript` 语法结果一样，**省掉 181 KB**。所以 `language`（给用户看的
   文件类型提示）和 `highlightAs`（真正的高亮语法）在代码里是两个独立参数。
 - 懒加载是会悄悄退化的：谁把 `import()` 改成静态 `import`，首屏就凭空胖 463 KB。
   所以验收脚本里有一条专门断言「首屏不得请求任何语法 chunk」。
+- **Tailwind v4 会扫描 `scripts/`，把 Node 脚本里的普通标识符当类名**：
+  `analyze-bundle.mjs` 里写了 `chunks.filter(...)`，就凭空生成了整套
+  `.filter` / drop-shadow / brightness 工具类（含十几个 `@property`），多出 1.5 KB CSS。
+  已在 `index.css` 里用 `@source not "../scripts"` 排除 —— 这类误报会随脚本增多而增长，
+  且永远不会有人用。
 
 ### 改前端
 
@@ -311,6 +338,7 @@ pnpm run build        # 输出到 ../gateway/static/（构建产物要提交）
 cd web
 pnpm run check:contrast         # 前端：对比度实测（46 条断言）
 pnpm run verify                 # 前端：界面自动化验收（73 项断言）
+pnpm run analyze                # 前端：产物构成分析（排查体积用，不是断言）
 pnpm run check:all              # 上面两项 + typecheck + build，一条命令全过
 ```
 
@@ -322,6 +350,7 @@ pnpm run check:all              # 上面两项 + typecheck + build，一条命�
 | `test_harness_compat.py` | `system`+多轮、`tools`、`include_usage`、`max_tokens`、错误形状、并发流 | **13/13** |
 | `web/scripts/check-contrast.mjs` | WCAG 对比度：正文 4.5:1、非文本 3:1（固定浅色一套 token） | **46/46** |
 | `web/scripts/verify-ui.mjs` | 界面：渲染、溢出、字体、tnum、固定浅色、命令面板、路由、深链、key 不泄露、零控制台错误、语法高亮与懒加载、无主题切换入口 | **73/73** |
+| `web/scripts/analyze-bundle.mjs` | 产物构成（按包聚合的 module → chunk 映射）；用于排查体积，不做断言 | — |
 
 `tests/mock_gemini.py` 是一个说 Gemini 协议的本地假上游，用来在没有真 key 的情况下验证 Gemini 转换层：
 
@@ -363,17 +392,18 @@ gateway/
     dashboard.html          由 web/dashboard.html 构建而来（含 key 注入占位符）
     assets/                 带 hash 的 JS / CSS / 字体
 web/           ← 前端源码（改这里，然后 pnpm build）
-  dashboard.html    Vite 入口（含预绘制主题脚本与 key 占位符）
+  dashboard.html    Vite 入口（含 key 占位符；服务端替换成真实 key）
   src/
-    index.css       设计 token 层（颜色/字号/圆角/阴影，深浅两套）
+    index.css       设计 token 层（颜色/字号/圆角/阴影，固定浅色一套）
     app.tsx         路由与外壳（HashRouter + 路由级代码分割）
     routes/         四个页面
     components/ui/  shadcn/ui 组件（21 个，已裁掉未使用的）
-    lib/            api / types / format / key / clipboard / 旧深链翻译 / highlighter
-    hooks/          TanStack Query 封装、主题、语法高亮
+    lib/            api / types / format / key / clipboard / utils / 旧深链翻译 / highlighter
+    hooks/          TanStack Query 封装、语法高亮、sidebar 的移动端判断
   scripts/
-    check-contrast.mjs  对比度实测（46 条断言，固定浅色）
-    verify-ui.mjs       浏览器端自动化验收（73 项断言）
+    check-contrast.mjs    对比度实测（46 条断言，固定浅色）
+    verify-ui.mjs         浏览器端自动化验收（73 项断言）
+    analyze-bundle.mjs    产物构成分析（回答"这个 chunk 里装了什么"）
 tests/
   run_all.sh            回归入口
   test_cooldown.py      限流重置时间解析

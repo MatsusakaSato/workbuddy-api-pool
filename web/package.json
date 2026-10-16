@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "verify": "node scripts/verify-ui.mjs",
     "verify:shots": "node scripts/verify-ui.mjs --shots",
+    "analyze": "node scripts/analyze-bundle.mjs",
     "check:contrast": "node scripts/check-contrast.mjs",
     "check:all": "pnpm run typecheck && pnpm run check:contrast && pnpm run build && pnpm run verify"
   },
