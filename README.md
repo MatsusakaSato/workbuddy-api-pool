@@ -315,14 +315,26 @@ pnpm install          # 只有改前端时才需要 Node
 pnpm run dev          # 起 Vite dev server，代理 /admin /v1 /healthz 到 8788
 pnpm run typecheck
 pnpm run build        # 输出到 ../gateway/static/（构建产物要提交）
+pnpm run analyze      # 体积排查：每个 chunk 里到底装了什么
 ```
 
-两个容易踩的坑，已经在 `vite.config.ts` 里处理好了：
+**dev server 的地址要照它打印的那行打开**，形如 `http://127.0.0.1:5173/static/`
+（`base` 是 `/static/`，所以不在根路径）。四个坑都已在 `vite.config.ts` 里处理好了：
 
-- **构建会覆盖 `gateway/static/dashboard.html`**（这是设计如此），但插件只清理 `assets/`，
-  不会误删整个 `static/`。
+- **构建会覆盖 `gateway/static/dashboard.html`**（这是设计如此），但插件只清理**解析后
+  outDir** 下的 `assets/`，不会误删整个 `static/`，也不会因为换 outDir 而删错地方。
 - **dev 模式下 Vite 直接吐 HTML，不走服务端的 key 注入**，页面会一直是 401。
-  所以加了一个 `transformIndexHtml` 插件从 `.env` 读 key 补上，让 dev 和线上行为一致。
+  所以加了一个 `transformIndexHtml` 插件从 `.env` 读 key 补上（已实测：
+  dev 与线上都是 0 个占位符 + 1 个真实 key）。
+- **入口文件名是 `dashboard.html` 而不是 `index.html`**，Vite 不会把它当目录首页，
+  于是它打印的 `/static/` 会是 **404**。已用一个 `configureServer` 中间件把
+  `/` 与 `/static/` 改写到真正的入口，让打印出来的地址直接可用。
+- **dev 端口显式绑 `127.0.0.1`（IPv4）**。不绑的话 Vite 默认绑 IPv6 的 `[::1]`，
+  若有别的进程占着 IPv4 的同一端口，两边各占一个协议族、谁也不报错，
+  Vite 打印「5173 可用」，而你在浏览器里看到的是**别人的应用**
+  （本机上真有：睿云智能工作台的 srtclaw-service 占着 IPv4:5173）。
+  绑死 IPv4 后冲突会被真正检测到，Vite 会明确打印 `Port 5173 is in use, trying another one...`
+  并退到 5174。
 
 `gateway/static/assets/` 和 `gateway/static/dashboard.html` **必须提交进仓库** ——
 它们是运行时产物，不提交的话 `./run.sh` 起来就是一个空白页。（`.gitignore` 里有注释说明。）

@@ -40,11 +40,35 @@ function cleanAssetsDir(): Plugin {
  * 这里补上同样的替换（从 ../.env 读），让 dev 与线上行为一致：
  * 打开 dev server 就是可用的面板，不用手工粘 key。
  * 只作用于 serve，构建产物里占位符原样保留给服务端替换。
+ *
+ * 顺带修一个入口文件名带来的小坑，见下面 configureServer 的注释。
  */
 function injectDevKey(): Plugin {
   return {
     name: 'wbgw-inject-dev-key',
     apply: 'serve',
+
+    /**
+     * Vite dev 默认把 `/` 重定向到 `base`（这里是 `/static/`），并把 `index.html`
+     * 当作目录首页 —— 但本项目的入口叫 **dashboard.html**（服务端读的就是这个文件名，
+     * 不能改）。于是它打印的 `http://localhost:5173/static/` 实际是 **404**，
+     * 开发者照着点会一脸问号；这台机器上 5173 还恰好被另一个不相干的应用
+     * （睿云智能工作台）占着，更容易误判成"面板坏了"。
+     *
+     * 这里在 Vite 自己的中间件之前把目录请求改写到真正的入口，
+     * 让 `pnpm run dev` 打印出来的地址直接可用，也和线上
+     * （server.py 把 `/` 映射到 dashboard.html）保持一致。
+     */
+    configureServer(server) {
+      server.middlewares.use((req, _res, next) => {
+        const url = req.url ?? ''
+        if (url === '/' || url === '/static' || url === '/static/') {
+          req.url = '/static/dashboard.html'
+        }
+        next()
+      })
+    },
+
     transformIndexHtml(html) {
       let key = process.env.GATEWAY_API_KEY ?? ''
       if (!key) {
@@ -93,6 +117,14 @@ export default defineConfig({
 
   server: {
     port: 5173,
+    /* 显式绑 IPv4 回环。
+       不写这一行时 Vite 默认绑 IPv6 的 [::1]，而另一个进程可能正占着 IPv4 的
+       同一端口 —— 两个进程各占一个协议族，谁也不报错，Vite 打印"5173 可用"，
+       但你浏览器访问 127.0.0.1:5173 看到的**是别人的应用**。
+       （本机上确实如此：睿云智能工作台的 srtclaw-service 占着 IPv4:5173。）
+       绑死 IPv4 后端口冲突会被真正检测到，Vite 会自动退到 5174 并明确打印出来。
+       顺带也更安全：只监听回环，不对外暴露。 */
+    host: '127.0.0.1',
     /* 开发时由 Vite 提供 HMR，API 请求代理到真实网关。
        浏览器视角仍同源，因此不需要 CORS。 */
     proxy: {
