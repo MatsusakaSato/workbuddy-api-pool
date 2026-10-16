@@ -1,0 +1,25 @@
+# 密钥与状态：绝不提交
+.env
+state/
+
+# 依赖与构建产物
+.venv/
+.npm-cache/
+__pycache__/
+*.pyc
+
+# 前端依赖（web/ 的源码是唯一真实来源）
+node_modules/
+web/dist/
+web/.vite/
+web/*.tsbuildinfo
+
+# 注意：gateway/static/assets/ 与 gateway/static/dashboard.html 是 web/ 的**构建产物**，
+# 必须提交进仓库 —— 运行时不装 Node，Python 服务端直接发这些静态文件。
+# 千万不要把 vendor/、assets/ 加进忽略列表。
+
+# 第三方源码（体积大，需要时重新下载）
+plugin-src/
+*.tgz
+
+.DS_Store
