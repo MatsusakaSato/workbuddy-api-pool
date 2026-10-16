@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="color-scheme" content="light dark" />
+<meta name="color-scheme" content="light" />
 <meta name="robots" content="noindex, nofollow" />
 <title>WorkBuddy 网关</title>
 
@@ -21,26 +21,19 @@
 <script>window.__DSH_GATEWAY_KEY__ = "__GATEWAY_KEY__";</script>
 
 <!--
-  预绘制主题：在首帧之前把 .dark 挂上，避免刷新时闪白。
-  支持 ?theme=dark|light|system 深链；localStorage 键沿用旧版的 wbgw_theme，
-  所以老用户已有的偏好不会丢。
--->
-<script>
-try {
-  var q = new URLSearchParams(location.search).get('theme');
-  if (q === 'dark' || q === 'light' || q === 'system') localStorage.setItem('wbgw_theme', q);
-  var t = localStorage.getItem('wbgw_theme') || 'system';
-  var dark = t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-  if (dark) document.documentElement.classList.add('dark');
-  document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
-} catch (e) {}
-</script>
+  这里原本有一段「预绘制主题」脚本：在首帧之前读 localStorage / ?theme= / 系统偏好，
+  决定要不要给 <html> 挂 .dark，以免刷新时闪白。面板已固定浅色、不做主题切换，
+  所以整段删掉了 —— 没有主题要预绘制，也就不存在闪白。
 
-<!-- 内联 favicon：省一次请求，也不会 404。用强调色底，深浅色标签栏上都看得见。 -->
+  顺带清理：存量用户 localStorage 里可能还留着旧版的 wbgw_theme，
+  它现在没有任何代码读取，留着无害（只是个孤儿键），不必专门去删。
+-->
+
+<!-- 内联 favicon：省一次请求，也不会 404。用强调色底，浅色标签栏上看得见。 -->
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230090ff'/%3E%3Cpath d='M18 4 8.5 18.5H14L12.5 28l9.5-14.5H16.5z' fill='%23fff'/%3E%3C/svg%3E" />
-  <script type="module" crossorigin src="/static/assets/dashboard-Bk76O1gf.js"></script>
+  <script type="module" crossorigin src="/static/assets/dashboard-PTizxsTJ.js"></script>
   <link rel="modulepreload" crossorigin href="/static/assets/clipboard-BCGZYmVk.js">
-  <link rel="stylesheet" crossorigin href="/static/assets/dashboard-kaQXsbt3.css">
+  <link rel="stylesheet" crossorigin href="/static/assets/dashboard-Cs-3678s.css">
 </head>
 <body>
 <div id="root"></div>

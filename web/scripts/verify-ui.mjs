@@ -160,28 +160,36 @@ async function main() {
     overflow.bad.length ? overflow.bad[0] : '',
   )
 
-  /* ---------------- 6. 主题切换 ---------------- */
-  console.log('\n【6】主题切换')
-  const darkBefore = await page.evaluate(() => document.documentElement.classList.contains('dark'))
-  await page.getByRole('button', { name: /切换到(暗色|亮色)/ }).click()
-  await page.waitForTimeout(250)
-  const darkAfter = await page.evaluate(() => document.documentElement.classList.contains('dark'))
-  record('主题切换生效', darkBefore !== darkAfter, `${darkBefore} → ${darkAfter}`)
+  /* ---------------- 6. 固定浅色（不做主题切换） ---------------- */
+  console.log('\n【6】固定浅色')
+  const themeState = await page.evaluate(() => ({
+    hasDarkClass: document.documentElement.classList.contains('dark'),
+    colorScheme: getComputedStyle(document.documentElement).colorScheme,
+    bodyBg: getComputedStyle(document.body).backgroundColor,
+  }))
+  record('未挂 .dark 类（固定浅色）', !themeState.hasDarkClass, `.dark 存在=${themeState.hasDarkClass}`)
+  record('color-scheme 为 light（原生控件/滚动条也走浅色）', themeState.colorScheme === 'light', themeState.colorScheme)
 
-  const bodyBg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor)
-  record('背景色随主题变化', !!bodyBg, bodyBg)
+  // 断言"真的是浅色"而不是"有颜色就行"：三个通道都该接近白
+  const bgRgb = themeState.bodyBg.match(/\d+/g)?.map(Number) ?? []
+  const isLightBg = bgRgb.length >= 3 && bgRgb.slice(0, 3).every((c) => c > 200)
+  record('背景色确为浅色（三通道 > 200）', isLightBg, themeState.bodyBg)
 
-  // 深色下截图
-  if (wantShots && darkAfter) {
-    mkdirSync(SHOTS, { recursive: true })
-    await page.screenshot({ path: resolve(SHOTS, 'overview-dark.png'), fullPage: true })
-  }
+  // 界面上不应再有任何主题切换入口
+  const themeControls = await page
+    .getByRole('button', { name: /切换到(暗色|亮色)|主题/ })
+    .count()
+  record('界面上没有主题切换按钮', themeControls === 0, `${themeControls} 个`)
 
-  // 切回亮色
-  if (darkAfter) {
-    await page.getByRole('button', { name: /切换到(暗色|亮色)/ }).click()
-    await page.waitForTimeout(200)
-  }
+  // 旧深链 ?theme=dark 应当既不生效、也不留在地址栏
+  await page.goto(`${BASE}/?theme=dark`, { waitUntil: 'networkidle' })
+  await page.waitForTimeout(500)
+  const legacyTheme = await page.evaluate(() => ({
+    hasDarkClass: document.documentElement.classList.contains('dark'),
+    search: location.search,
+  }))
+  record('旧 ?theme=dark 深链不再生效', !legacyTheme.hasDarkClass)
+  record('旧 ?theme=dark 已从地址栏清除', !/theme=/.test(legacyTheme.search), `search="${legacyTheme.search}"`)
 
   /* ---------------- 7. 命令面板 ---------------- */
   console.log('\n【7】命令面板')
@@ -297,7 +305,7 @@ async function main() {
   if (wantShots) {
     await page.goto(`${BASE}/#/models`, { waitUntil: 'networkidle' })
     await page.waitForTimeout(900)
-    await page.screenshot({ path: resolve(SHOTS, 'models-light.png'), fullPage: true })
+    await page.screenshot({ path: resolve(SHOTS, 'models.png'), fullPage: true })
   }
 
   /* ---------------- 8b. 用量页 ---------------- */
@@ -383,7 +391,7 @@ async function main() {
     // 截图用默认视图（近 7 天 · 请求），不要把测试留下的状态拍进去
     await page.goto(`${BASE}/#/usage`, { waitUntil: 'networkidle' })
     await page.waitForTimeout(1300)
-    await page.screenshot({ path: resolve(SHOTS, 'usage-light.png'), fullPage: true })
+    await page.screenshot({ path: resolve(SHOTS, 'usage.png'), fullPage: true })
   }
 
   /* ---------------- 8c. 接入页 ---------------- */
@@ -462,7 +470,7 @@ async function main() {
   )
 
   if (wantShots) {
-    await page.screenshot({ path: resolve(SHOTS, 'connect-light.png'), fullPage: true })
+    await page.screenshot({ path: resolve(SHOTS, 'connect.png'), fullPage: true })
   }
 
   /* ---------------- 8d. 旧深链翻译 ---------------- */
@@ -493,7 +501,7 @@ async function main() {
   await page.waitForTimeout(1400)
   if (wantShots) {
     mkdirSync(SHOTS, { recursive: true })
-    await page.screenshot({ path: resolve(SHOTS, 'overview-light.png'), fullPage: true })
+    await page.screenshot({ path: resolve(SHOTS, 'overview.png'), fullPage: true })
   }
 
   /* ---------------- 9. 控制台洁净度 ---------------- */

@@ -37,7 +37,7 @@ base_url 填：http://127.0.0.1:8788/v1
 
 打开 <http://127.0.0.1:8788/> 就是控制台。
 
-![控制台概览](docs/screenshots/overview-light.png)
+![控制台概览](docs/screenshots/overview.png)
 
 四个页签，都用 **HashRouter** 深链（URL 形如 `#/models?facet=free`）：
 
@@ -46,16 +46,21 @@ base_url 填：http://127.0.0.1:8788/v1
 | 概览 | 单行指标条 · **只在出问题时才出现**的健康横幅 · 账号表 · 签到 · 最近请求日志 |
 | 模型 | 51 个模型，按家族分组，分面筛选（全部 / 免费 / 国内 / 国际）+ 四种排序 + 搜索，点模型 ID 复制 |
 | 用量 | 窗口选择（7/30/90 天）· 指标可切（请求 / 积分 / tokens）的每日柱状图 · 按模型 / 按账号明细 |
-| 接入 | base_url、API key（**默认遮住**）、Gemini 后端、state 目录，以及 curl / Python / Node 复制即用片段（**带语法高亮**，配色直接复用全站 token，深浅色自动跟随） |
+| 接入 | base_url、API key（**默认遮住**）、Gemini 后端、state 目录，以及 curl / Python / Node 复制即用片段（**带语法高亮**，配色直接复用全站 token） |
 
-![模型页](docs/screenshots/models-light.png)
+![模型页](docs/screenshots/models.png)
 
-![用量](docs/screenshots/usage-light.png)
+![用量](docs/screenshots/usage.png)
 
-深色主题（点顶栏图标切换，或 `?theme=dark`）。深色不是把亮色反过来，而是**用表面亮度分层**
-反推出来的圆角与边框对比：
+接入页（key 默认遮住，所以**这一页现在可以安全截图**；旧面板时代这一页的片段里嵌着完整 key，
+README 因此一直不敢放它的截图）：
 
-![深色主题](docs/screenshots/overview-dark.png)
+![接入页](docs/screenshots/connect.png)
+
+> **面板固定浅色，不做主题切换**（明确的产品决定）。曾经实现过的深色主题已整套移除：
+> `.dark` token 层、主题 hook、`dashboard.html` 的预绘制脚本、顶栏与命令面板的切换入口、
+> 深色截图与深色对比度断言。要恢复的话，`web/scripts/check-contrast.mjs` 顶部有一段
+> 守卫信息列出了需要一并恢复的清单 —— 只加回 CSS 而不加回校验和入口会被它拦下。
 
 **全键盘可达**：`⌘K` / `Ctrl+K` 打开命令面板（跳页、搜模型、重载凭据、端到端自检、复制 base_url），
 `⌘B` 折叠侧栏，`Esc` 关闭弹层，Tab 焦点环按 WCAG 2.4.11 做了 3:1 对比度校正。
@@ -223,7 +228,7 @@ SSE 翻成 OpenAI 的 `chat.completion.chunk`，`finishReason` 映射为 `stop` 
 
 ```bash
 cd web
-pnpm run check:contrast     # 92 条断言，浅色 + 深色
+pnpm run check:contrast     # 46 条断言（面板固定浅色，只校验一套 token）
 ```
 
 它解析 `src/index.css` 里的 token、解析 `var()` 链、按 WCAG 公式算真实对比度，任一不达标就非 0 退出。
@@ -231,20 +236,23 @@ pnpm run check:contrast     # 92 条断言，浅色 + 深色
 
 - 浅色下**没有任何 step-9 实心色**能让白字过 AA（red-9 仅 3.91、amber-9 仅 1.58）→ 实心底改用 step-11
 - amber 的 step-9/10 是给「深色文字放在它上面」设计的，当状态点只有 1.54–1.67 → 改用 amber-11
-- 深色下实心底配白字只有 3.16–3.91 → 深色的 `-foreground` 全部改成深色文字（不是白字）
-- shadcn 预设的 `focus-visible:ring-ring/50` 只有 1.81:1（亮）/ 2.26:1（暗），
-  达不到 2.4.11 的 3:1 → 12 个组件里全部改为全不透明
+- shadcn 预设的 `focus-visible:ring-ring/50` 只有 1.81:1，达不到 2.4.11 的 3:1（深色下也只有 2.26:1）
+  → 12 个组件里全部改为全不透明
+
+> 脚本顶部有一段守卫：`index.css` 里若重新出现 `.dark` 块就直接报错 —— 只加回深色样式、
+> 却不加回切换入口和校验，等于造出一套没人用也没人验的样式，不如让它显眼地失败。
 
 ### 界面验收
 
 ```bash
 cd web
-pnpm run verify          # headless Chrome 跑 69 项断言
+pnpm run verify          # headless Chrome 跑 73 项断言
 pnpm run verify:shots    # 顺便刷新 docs/screenshots/
 ```
 
 覆盖：key 注入正确且**不被渲染成可见文本**、四个页面都能渲染、无横向溢出、
-字体与 tnum 生效、主题切换、命令面板开关、路由与**旧深链翻译**、
+字体与 tnum 生效、**固定浅色（无 `.dark`、无切换入口、旧 `?theme=` 深链已失效并清除）**、
+命令面板开关、路由与**旧深链翻译**、
 模型的 null 倍率显示为「—」而不是「免费」、接入页默认不泄露 key、
 语法高亮生效且**首屏不得加载高亮 chunk**、控制台零错误零失败请求。
 
@@ -301,8 +309,8 @@ pnpm run build        # 输出到 ../gateway/static/（构建产物要提交）
 ./tests/run_all.sh --no-live    # 后端回归：跳过需要真实上游的探针
 
 cd web
-pnpm run check:contrast         # 前端：对比度实测（92 条断言）
-pnpm run verify                 # 前端：界面自动化验收（69 项断言）
+pnpm run check:contrast         # 前端：对比度实测（46 条断言）
+pnpm run verify                 # 前端：界面自动化验收（73 项断言）
 pnpm run check:all              # 上面两项 + typecheck + build，一条命令全过
 ```
 
@@ -312,8 +320,8 @@ pnpm run check:all              # 上面两项 + typecheck + build，一条命�
 | `test_usage.py` | 用量聚合、窗口口径、测试流量单独计数 | — |
 | `test_failover.py` | 故障注入：排序生效、假 token 被拒、错误归类、换号、`client` 不换号、`credit` 出池、临时账号不落盘 | **10/10** |
 | `test_harness_compat.py` | `system`+多轮、`tools`、`include_usage`、`max_tokens`、错误形状、并发流 | **13/13** |
-| `web/scripts/check-contrast.mjs` | WCAG 对比度：正文 4.5:1、非文本 3:1，浅色 + 深色两套 token | **92/92** |
-| `web/scripts/verify-ui.mjs` | 界面：渲染、溢出、字体、tnum、主题、命令面板、路由、深链、key 不泄露、零控制台错误、语法高亮与懒加载 | **69/69** |
+| `web/scripts/check-contrast.mjs` | WCAG 对比度：正文 4.5:1、非文本 3:1（固定浅色一套 token） | **46/46** |
+| `web/scripts/verify-ui.mjs` | 界面：渲染、溢出、字体、tnum、固定浅色、命令面板、路由、深链、key 不泄露、零控制台错误、语法高亮与懒加载、无主题切换入口 | **73/73** |
 
 `tests/mock_gemini.py` 是一个说 Gemini 协议的本地假上游，用来在没有真 key 的情况下验证 Gemini 转换层：
 
@@ -364,8 +372,8 @@ web/           ← 前端源码（改这里，然后 pnpm build）
     lib/            api / types / format / key / clipboard / 旧深链翻译 / highlighter
     hooks/          TanStack Query 封装、主题、语法高亮
   scripts/
-    check-contrast.mjs  对比度实测（92 条断言，两种主题）
-    verify-ui.mjs       浏览器端自动化验收（69 项断言）
+    check-contrast.mjs  对比度实测（46 条断言，固定浅色）
+    verify-ui.mjs       浏览器端自动化验收（73 项断言）
 tests/
   run_all.sh            回归入口
   test_cooldown.py      限流重置时间解析

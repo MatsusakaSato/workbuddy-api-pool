@@ -9,19 +9,21 @@
    3. 边框优先用 Geist 的「阴影描边」`0 0 0 1px`，不占布局、贴合圆角。
    4. 字号与行高**全部取偶数**（12/14/16/20/24 + 行高 16/20/24/28/32）。
       这是 Grafana 在源码里断言的那条规则的实质：保证垂直节奏对齐。
-   5. 暗色不用纯黑，层级靠**表面明度**而非阴影。
+   5. 面板**固定浅色**，不做主题切换（明确的产品决定）。
+      原本还有一整套暗色 token，已移除，见下面第 3 节的位置说明。
 
    状态色全部经过程序化对比度实测，不是估的。两个关键实测结论：
    · 亮色下没有任何 step-9 实心色能让白字过 AA（red-9 仅 3.91、amber-9 仅 1.58），
-     所以**亮色的实心底取 step-11**：red-11+白 5.21、green-11 4.72、blue-11 4.77、amber-11 4.61。
-   · amber 的 step-9/10 是为「深色文字放在它上面」设计的，当状态点只有 1.54–1.67，
-     **亮色的警告点必须用 amber-11 `#ab6400`**。这是唯一一个不可避免的特例。
+     所以**实心底取 step-11**：red-11+白 5.21、green-11 4.72、blue-11 4.77、amber-11 4.61。
+   · amber 的 step-9/10 是为「深色文字放在它上面」设计的（注意：这里说的"深色文字"
+     指文字颜色深，与主题无关），当状态点用它们只有 1.54–1.67，
+     所以**警告点必须用 amber-11 `#ab6400`**。这是唯一一个不可避免的特例。
 
    --------------------------------------------------------------------------
    对 shadcn 预设做的两处修改（都是无障碍缺陷，不是审美偏好）：
    1. 12 个组件里的 `focus-visible:ring-ring/50` 已全部改为 `ring-ring`。
-      半透明环实测只有 1.81:1（亮）/ 2.26:1（暗），达不到 WCAG 2.4.11 对焦点
-      指示器要求的 3:1。改后为 3.26:1 / 5.78:1。
+      半透明环实测只有 1.81:1，达不到 WCAG 2.4.11 对焦点指示器要求的 3:1。
+      改后为 3.26:1。
    2. `--input` 用 slate-9 而非预设的浅灰，让交互组件外框满足 1.4.11 的 3:1。
    ========================================================================== */
 
@@ -31,6 +33,18 @@
 @import "@fontsource-variable/geist";
 @import "@fontsource-variable/geist-mono";
 
+/**
+ * 面板固定浅色，**不做主题切换**（明确的产品决定，不是漏做。
+ * 原来那一整节 `.dark` token 覆盖已删除，见下面第 3 节的位置说明）。
+ *
+ * 这一行故意留着 —— 它让所有 `dark:` 实用类只在 `.dark` 祖先下生效，
+ * 而既然全站永远不会给任何元素加 `.dark` 类，上游 shadcn 组件里自带的
+ * 那约 36 处 `dark:` 就永远不会命中。保留它们是为了让 `ui/` 下的组件
+ * 与上游保持一致（`shadcn diff` / 升级不会处处冲突），代价只是几 KB 惰性 CSS。
+ *
+ * ⚠️ 千万不要删掉这行、退回 Tailwind 默认的 `prefers-color-scheme` ——
+ * 那会让系统处于深色的机器上看到「只翻了一半」的破损界面。
+ */
 @custom-variant dark (&:is(.dark *));
 
 /* ==========================================================================
@@ -336,133 +350,18 @@
 }
 
 /* ==========================================================================
-   3. 暗色主题
+   3. 暗色主题 —— 已移除
+
+   面板固定浅色，不做主题切换（这是明确的产品决定，不是漏做）。
+   这里原本有一整节 .dark 的 token 覆盖，已整体删除。
+
+   注意下面第 0 节仍保留着 `@custom-variant dark (&:is(.dark *))`：
+   只要没有任何元素被加上 .dark 类，组件里那些 `dark:` 实用类（shadcn 上游
+   组件自带，约 36 处）就永远不会生效。保留它们是为了让 ui/ 下的组件
+   与上游保持一致 —— 改花 9 个文件只为省 1.5 KB gzip 并不值得。
+   千万不要改成 Tailwind 默认的 prefers-color-scheme，那会让系统处于
+   深色的机器看到"只翻了一半"的破损界面。
    ========================================================================== */
-
-.dark {
-  color-scheme: dark;
-
-  --slate-1: #111113;
-  --slate-2: #18191b;
-  --slate-3: #212225;
-  --slate-4: #272a2d;
-  --slate-5: #2e3135;
-  --slate-6: #363a3f;
-  --slate-7: #43484e;
-  --slate-8: #5a6169;
-  --slate-9: #696e77;
-  --slate-10: #777b84;
-  --slate-11: #b0b4ba;
-  --slate-12: #edeef0;
-
-  @supports (color: color(display-p3 1 1 1)) {
-    --slate-1: color(display-p3 0.067 0.067 0.074);
-    --slate-2: color(display-p3 0.095 0.098 0.105);
-    --slate-3: color(display-p3 0.13 0.135 0.145);
-    --slate-4: color(display-p3 0.156 0.163 0.176);
-    --slate-5: color(display-p3 0.183 0.191 0.206);
-    --slate-6: color(display-p3 0.215 0.226 0.244);
-    --slate-7: color(display-p3 0.265 0.28 0.302);
-    --slate-8: color(display-p3 0.357 0.381 0.409);
-    --slate-9: color(display-p3 0.415 0.431 0.463);
-    --slate-10: color(display-p3 0.469 0.483 0.514);
-    --slate-11: color(display-p3 0.692 0.704 0.728);
-    --slate-12: color(display-p3 0.93 0.933 0.94);
-  }
-
-  /* 不用纯黑。层级靠表面明度：页面 slate-1 → 卡片 slate-2 → 弹层 slate-3 */
-  --background: #111113;
-  --foreground: #edeef0;
-  --card: #18191b;
-  --card-foreground: #edeef0;
-  --popover: #212225;
-  --popover-foreground: #edeef0;
-
-  --primary: #edeef0;
-  --primary-foreground: #111113;
-  --secondary: #272a2d;
-  --secondary-foreground: #edeef0;
-  --muted: #212225;
-  --muted-foreground: #b0b4ba;      /* on 页面底 9.06:1 ✓ */
-  --accent: #272a2d;
-  --accent-foreground: #edeef0;
-
-  --border: #363a3f;
-  --border-subtle: #272a2d;
-  --input: #696e77;                 /* 3.43:1 on 卡片 —— 满足 1.4.11 的非文本 3:1 */
-  --ring: #0090ff;
-  --ring-offset: #111113;
-
-  /* 状态色 · 暗色
-     ── 暗色与亮色的规律**故意不同** ──
-     文字：step-11（实测 8.95–12.32 全过）
-     底片：用 **step-3** 而非 step-2 —— 亮色底片要贴近页面亮度才不压掉暗字，
-           暗色底片则要比页面亮一点才看得出"这是一块浅色底"，而浅色文字在更亮的
-           底片上对比度依然充足（实测 7.08–10.26）
-     实心块：**配深字 #111113，不是白字**。实测暗色下所有饱和实心色配白字
-           都不达 4.5:1（green-9 仅 3.16、blue-9 仅 3.26、red-9 仅 3.91），
-           而配深字全部通过（5.97 / 5.78 / 4.82 / 11.95）。
-           Radix / shadcn 默认的白字方案在这个门槛下是不合格的，这里按实测取值。 */
-  --success: #3dd68c;               /* 10.06:1 on 页面底 */
-  --success-subtle: #132d21;
-  --success-border: #20573e;
-  --success-dot: #30a46c;           /* 5.97:1 */
-  --success-solid: #30a46c;
-  --success-foreground: #111113;
-
-  --warning: #ffca16;               /* 12.32:1 on 页面底 */
-  --warning-subtle: #302008;
-  --warning-border: #5c3d05;
-  --warning-dot: #ffc53d;           /* 11.95:1 —— 暗色下没有亮色那个问题 */
-  --warning-solid: #ffc53d;
-  --warning-foreground: #111113;
-
-  --danger: #ff9592;                /* 8.95:1 on 页面底 */
-  --danger-subtle: #3b1219;
-  --danger-border: #72232d;
-  --danger-dot: #e5484d;            /* 4.82:1 */
-  --danger-solid: #e5484d;
-  --danger-foreground: #111113;     /* 4.82:1 ✓（白字只有 3.91，不合格） */
-
-  --info: #70b8ff;                  /* 8.97:1 on 页面底 */
-  --info-subtle: #0d2847;
-  --info-border: #205d9e;
-  --info-dot: #0090ff;              /* 5.78:1 */
-  --info-solid: #0090ff;
-  --info-foreground: #111113;
-
-  --idle: #b0b4ba;                  /* 9.06:1 on 页面底 */
-  --idle-subtle: #212225;
-  --idle-border: #363a3f;
-  --idle-dot: #696e77;              /* 3.68:1 */
-
-  --destructive: #e5484d;
-  --destructive-foreground: #111113;
-
-  --chart-1: #0090ff;               /* 5.78:1 */
-  --chart-2: #30a46c;               /* 5.97:1 */
-  --chart-3: #f76b15;               /* 5.92:1 */
-  --chart-4: #b07ff0;               /* 5.98:1 */
-  --chart-5: #8b8d98;               /* 5.33:1 */
-
-  --code-bg: #18191b;
-  --tok-kw: #70b8ff;
-  --tok-str: #3dd68c;
-  --tok-num: #ffca16;
-  --tok-com: #b0b4ba;
-  --tok-fn: #d4a0ff;
-  --tok-punct: #edeef0;
-
-  --sidebar: #111113;
-  --sidebar-foreground: #edeef0;
-  --sidebar-primary: #edeef0;
-  --sidebar-primary-foreground: #111113;
-  --sidebar-accent: #272a2d;
-  --sidebar-accent-foreground: #edeef0;
-  --sidebar-border: #272a2d;
-  --sidebar-ring: #0090ff;
-}
-
 /* ==========================================================================
    4. 基础层
    ========================================================================== */

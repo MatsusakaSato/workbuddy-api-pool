@@ -11,10 +11,11 @@
  * 兼容的旧参数：
  *   ?tab=overview|models|usage|connect    → #/<name>
  *   ?facet=all|free|cn|global             → 带进 models 路由
- *   ?sort=family|cost|ctx                 → 带进 models 路由
+ *   ?sort=family|cost|ctx|name            → 带进 models 路由
  *   ?q=<关键词>                            → 带进 models 路由
  *   ?key=<API_KEY>                        → 存进 localStorage 后从地址栏抹掉
- *   ?theme=light|dark|system              → 存进 localStorage（预绘制脚本也会读）
+ *   ?theme=light|dark|system              → **不再生效**（面板固定浅色），
+ *                                           但仍会从地址栏清掉，见下面说明
  *
  * 必须在渲染之前调用一次。
  */
@@ -24,7 +25,6 @@ export type RouteName = (typeof ROUTES)[number]
 
 const DEFAULT_ROUTE: RouteName = 'overview'
 const KEY_STORAGE = 'wbgw_key'
-const THEME_STORAGE = 'wbgw_theme'
 
 function isRouteName(value: string | null): value is RouteName {
   return value !== null && (ROUTES as readonly string[]).includes(value)
@@ -47,16 +47,6 @@ function absorbLegacyKey(params: URLSearchParams): void {
   params.delete('key')
 }
 
-function absorbLegacyTheme(params: URLSearchParams): void {
-  const theme = params.get('theme')
-  if (theme !== 'light' && theme !== 'dark' && theme !== 'system') return
-  try {
-    localStorage.setItem(THEME_STORAGE, theme)
-  } catch {
-    /* 忽略 */
-  }
-}
-
 export interface BootResult {
   /** 应该跳到哪个路由 */
   route: RouteName
@@ -69,7 +59,6 @@ export function translateLegacyDeepLink(): BootResult {
   const params = url.searchParams
 
   absorbLegacyKey(params)
-  absorbLegacyTheme(params)
 
   const tab = params.get('tab')
   const route: RouteName = isRouteName(tab) ? tab : DEFAULT_ROUTE
@@ -81,7 +70,9 @@ export function translateLegacyDeepLink(): BootResult {
     if (value) carried.set(name, value)
   }
 
-  // 清掉所有旧的顶层参数，避免地址栏里两套参数并存
+  // 清掉所有旧的顶层参数，避免地址栏里两套参数并存。
+  // 'theme' 也留着清 —— 面板不再支持主题切换，但旧书签里的 ?theme=dark
+  // 仍要抹掉，否则地址栏会一直挂着一个已经没人读的参数。
   for (const name of ['tab', 'facet', 'sort', 'q', 'key', 'theme'] as const) {
     params.delete(name)
   }

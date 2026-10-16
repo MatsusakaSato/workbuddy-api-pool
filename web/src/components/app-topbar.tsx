@@ -2,13 +2,15 @@
  * 顶栏。
  *
  * 高度 48px，底部一条发丝分隔线，滚动时固定在顶部。
- * 只放全局动作（刷新、切主题、开命令面板）与当前页标题 ——
+ * 只放全局动作（刷新、开命令面板）与当前页标题 ——
  * 页面自己的操作按钮放在各页的页头，不要往上堆，否则顶栏会变成杂物抽屉。
+ *
+ * 原本还有一个主题切换按钮，已随「面板固定浅色」的决定一起移除。
  */
 
 import { useIsFetching, useQueryClient } from '@tanstack/react-query'
 import { NavLink, useLocation } from 'react-router'
-import { Command, Moon, RefreshCw, Sun } from 'lucide-react'
+import { Command, RefreshCw } from 'lucide-react'
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -16,7 +18,6 @@ import { Kbd } from '@/components/ui/kbd'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { StatusDot } from '@/components/status-dot'
 import { useHealth, useStatus } from '@/hooks/use-gateway'
-import { useTheme } from '@/hooks/use-theme'
 import { formatRelative } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { ROUTES, type RouteName } from '@/lib/legacy-deeplink'
@@ -36,7 +37,6 @@ function shortcutLabel(key: string): string {
 
 export function AppTopbar({ onOpenCommand }: { onOpenCommand: () => void }) {
   const location = useLocation()
-  const theme = useTheme()
   const qc = useQueryClient()
   const health = useHealth()
   const status = useStatus()
@@ -102,23 +102,6 @@ export function AppTopbar({ onOpenCommand }: { onOpenCommand: () => void }) {
           <TooltipContent>
             刷新全部数据
             {status.dataUpdatedAt ? ` · 上次 ${formatRelative(new Date(status.dataUpdatedAt))}` : ''}
-          </TooltipContent>
-        </Tooltip>
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={theme.toggle}
-              aria-label={theme.isDark ? '切换到亮色' : '切换到暗色'}
-            >
-              {theme.isDark ? <Sun /> : <Moon />}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            {theme.isDark ? '切换到亮色' : '切换到暗色'}
-            {theme.choice === 'system' ? '（当前跟随系统）' : ''}
           </TooltipContent>
         </Tooltip>
 

@@ -2,6 +2,7 @@
  * 对比度检查器
  *
  * 直接读 src/index.css 里**实际声明**的 token 值，重算 WCAG 对比度并断言。
+ * 面板固定浅色，所以只校验 :root 一套 token。
  * 关键点：它校验的是真正写进样式的值，不是一张可能和样式漂移的副本 ——
  * 所以任何人改了颜色，跑一下这个脚本就知道有没有踩线。
  *
@@ -167,10 +168,24 @@ const THRESHOLD = { text: 4.5, large: 3, nontext: 3, info: 0 }
 /* ---------- 跑 ---------- */
 
 const css = fs.readFileSync(CSS, 'utf8')
-const themes = [
-  { name: '亮色', tokens: { ...readBlock(css, ':root') } },
-  { name: '暗色', tokens: { ...readBlock(css, ':root'), ...readBlock(css, '.dark') } },
-]
+
+/**
+ * 面板固定浅色，不做主题切换，所以只校验 `:root` 这一套 token。
+ *
+ * 守卫：如果 index.css 里又冒出了 `.dark` 块，说明有人开始恢复深色主题了 ——
+ * 那时**必须同时**把主题切换 UI 和本脚本的深色断言一起加回来，
+ * 否则会得到一套写了却永远用不上、也没人校验的深色样式。直接报错更显眼。
+ */
+if (/^\s*\.dark\s*\{/m.test(css)) {
+  console.error('❌ src/index.css 里出现了 .dark 块，但本脚本只校验了浅色 token。')
+  console.error('   面板目前是固定浅色的。要恢复深色主题，请连同类一起恢复：')
+  console.error('     · 主题切换 UI（顶栏按钮 / 命令面板项）')
+  console.error('     · dashboard.html 的预绘制脚本')
+  console.error('     · 本脚本的深色断言（themes 数组加回一项）')
+  process.exit(1)
+}
+
+const themes = [{ name: '浅色', tokens: { ...readBlock(css, ':root') } }]
 
 let failures = 0
 let checked = 0
@@ -211,7 +226,7 @@ if (skipped > 0) {
   console.log(`  ⚠️  有 ${skipped} 项被跳过 —— 跳过不等于通过，必须查清原因`)
 }
 if (failures === 0 && skipped === 0) {
-  console.log(`  ✅ 全部通过（断言 ${checked} 项 / 双主题）`)
+  console.log(`  ✅ 全部通过（断言 ${checked} 项 / 固定浅色）`)
 } else {
   console.log(`  ❌ ${failures} 项不达标，${skipped} 项跳过（共断言 ${checked} 项）`)
 }

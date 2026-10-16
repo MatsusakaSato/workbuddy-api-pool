@@ -10,9 +10,13 @@
  * **2. 主题里的颜色写的是 `var(--tok-*)`，不是十六进制值。**
  * shiki 只是把 theme 里的颜色字符串原样写进 inline style，不做校验也不做归一化
  * （已实测：`var(--tok-kw)` 会被原样保留）。这么做的好处：
- *   · 深浅色切换完全由 CSS 完成 —— shiki 不用跑两遍，也不需要
- *     官方双主题那套 `--shiki-light` / `--shiki-dark` 的胶水代码和额外 CSS；
- *   · `index.css` 里的 `--tok-*` 是唯一真实来源，不会和 TS 里的色表各写一份慢慢写飘。
+ *   · `index.css` 里的 `--tok-*` 是唯一真实来源，不会和 TS 里的色表各写一份慢慢写飘
+ *     —— 改配色只需要动 CSS；
+ *   · 顺带的好处：万一以后要恢复深色主题，只要在 CSS 里给 `.dark` 覆盖
+ *     `--tok-*` 即可，**这份 TS 一行都不用改**，也不需要官方双主题那套
+ *     `--shiki-light` / `--shiki-dark` 的胶水代码。
+ *
+ * （面板目前固定浅色，不做主题切换。见 index.css 第 3 节的说明。）
  *
  * 引擎用 JavaScript 正则版（`createJavaScriptRegexEngine`），**不加载 WASM** ——
  * 保持整个面板「断网也能开」且不需要额外的 .wasm 静态资源。

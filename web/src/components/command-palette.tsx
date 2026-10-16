@@ -16,11 +16,9 @@ import {
   ChartColumn,
   Copy,
   LayoutDashboard,
-  Moon,
   Plug,
   RefreshCw,
   Stethoscope,
-  Sun,
 } from 'lucide-react'
 import {
   CommandDialog,
@@ -33,7 +31,6 @@ import {
   CommandShortcut,
 } from '@/components/ui/command'
 import { useModels, useReload, useSelftest, useSettings } from '@/hooks/use-gateway'
-import { useTheme } from '@/hooks/use-theme'
 import { copyText } from '@/lib/clipboard'
 import { toast } from 'sonner'
 
@@ -48,7 +45,6 @@ export function CommandPalette({
 }) {
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const theme = useTheme()
   const models = useModels()
   const settings = useSettings()
   const reload = useReload()
@@ -140,14 +136,6 @@ export function CommandPalette({
             <Copy />
             复制 base_url
             <CommandShortcut className="font-mono">{baseUrl ?? '—'}</CommandShortcut>
-          </CommandItem>
-          <CommandItem
-            value="主题 暗色 亮色 theme dark light"
-            onSelect={() => run(() => theme.toggle())}
-          >
-            {theme.isDark ? <Sun /> : <Moon />}
-            {theme.isDark ? '切换到亮色' : '切换到暗色'}
-            <CommandShortcut>{theme.choice === 'system' ? '跟随系统' : theme.choice}</CommandShortcut>
           </CommandItem>
           <CommandItem
             value="刷新全部数据 refresh"
