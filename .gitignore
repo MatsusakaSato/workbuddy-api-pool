@@ -8,6 +8,9 @@ state/
 __pycache__/
 *.pyc
 
+# pnpm 的内容寻址仓库（在 workspace 里就地建出来，578 MB / 4.6 万文件，绝不提交）
+.pnpm-store/
+
 # 前端依赖（web/ 的源码是唯一真实来源）
 node_modules/
 web/dist/
@@ -16,7 +19,8 @@ web/*.tsbuildinfo
 
 # 注意：gateway/static/assets/ 与 gateway/static/dashboard.html 是 web/ 的**构建产物**，
 # 必须提交进仓库 —— 运行时不装 Node，Python 服务端直接发这些静态文件。
-# 千万不要把 vendor/、assets/ 加进忽略列表。
+# 千万不要把 assets/ 加进忽略列表：字体 woff2 就在里面，
+# 「断网也能打开面板」这条依赖它们被提交。
 
 # 第三方源码（体积大，需要时重新下载）
 plugin-src/

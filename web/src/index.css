@@ -1,0 +1,569 @@
+/* ==========================================================================
+   WorkBuddy 网关控制台 · 设计 token
+   --------------------------------------------------------------------------
+   依据与实测数据见 docs/设计调研.md。核心约定：
+
+   1. 中性色用 Radix **Slate** 12 档，每档用途固定，禁止跨档混用
+      （1-2 底 · 3-5 组件底 · 6-8 边框 · 9-10 实心 · 11-12 文字）。
+   2. 字体：Geist（拉丁/数字）+ 系统中文。**不内嵌 CJK webfont**（4.78MB，理由见调研 §4）。
+   3. 边框优先用 Geist 的「阴影描边」`0 0 0 1px`，不占布局、贴合圆角。
+   4. 字号与行高**全部取偶数**（12/14/16/20/24 + 行高 16/20/24/28/32）。
+      这是 Grafana 在源码里断言的那条规则的实质：保证垂直节奏对齐。
+   5. 暗色不用纯黑，层级靠**表面明度**而非阴影。
+
+   状态色全部经过程序化对比度实测，不是估的。两个关键实测结论：
+   · 亮色下没有任何 step-9 实心色能让白字过 AA（red-9 仅 3.91、amber-9 仅 1.58），
+     所以**亮色的实心底取 step-11**：red-11+白 5.21、green-11 4.72、blue-11 4.77、amber-11 4.61。
+   · amber 的 step-9/10 是为「深色文字放在它上面」设计的，当状态点只有 1.54–1.67，
+     **亮色的警告点必须用 amber-11 `#ab6400`**。这是唯一一个不可避免的特例。
+
+   --------------------------------------------------------------------------
+   对 shadcn 预设做的两处修改（都是无障碍缺陷，不是审美偏好）：
+   1. 12 个组件里的 `focus-visible:ring-ring/50` 已全部改为 `ring-ring`。
+      半透明环实测只有 1.81:1（亮）/ 2.26:1（暗），达不到 WCAG 2.4.11 对焦点
+      指示器要求的 3:1。改后为 3.26:1 / 5.78:1。
+   2. `--input` 用 slate-9 而非预设的浅灰，让交互组件外框满足 1.4.11 的 3:1。
+   ========================================================================== */
+
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ==========================================================================
+   1. 把 token 注册给 Tailwind，生成 bg-* / text-* / border-* / rounded-* 等工具类
+   ========================================================================== */
+
+@theme inline {
+  /* ---- 字体 ---- */
+  --font-sans: "Geist Variable", system-ui, -apple-system, BlinkMacSystemFont,
+               "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei",
+               "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei",
+               sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, "SF Mono",
+               Menlo, Consolas, "Liberation Mono", monospace;
+  --font-heading: var(--font-sans);
+
+  /* ---- 字号：全部偶数，行高也全部偶数 ---- */
+  --text-2xs: 12px;
+  --text-2xs--line-height: 16px;
+  --text-2xs--letter-spacing: 0em;
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 14px;
+  --text-sm--line-height: 20px;
+  --text-sm--letter-spacing: -0.006em;
+  --text-base: 14px;
+  --text-base--line-height: 20px;
+  --text-lg: 16px;
+  --text-lg--line-height: 24px;
+  --text-lg--letter-spacing: -0.011em;
+  --text-xl: 20px;
+  --text-xl--line-height: 28px;
+  --text-xl--letter-spacing: -0.017em;
+  --text-2xl: 24px;
+  --text-2xl--line-height: 32px;
+  --text-2xl--letter-spacing: -0.02em;
+  --text-3xl: 28px;
+  --text-3xl--line-height: 36px;
+  --text-3xl--letter-spacing: -0.022em;
+
+  /* ---- 圆角：清一色整数，不用 calc 派生（派生出来是 3.6/4.8 这种脏值） ---- */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
+  --radius-2xl: 12px;
+  --radius-3xl: 16px;
+
+  /* ---- 动效 ---- */
+  --ease-swift: cubic-bezier(0.175, 0.885, 0.32, 1.1);
+  --ease-out-quad: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --ease-in-out-std: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out-std: cubic-bezier(0, 0, 0.2, 1);
+
+  /* ---- 中性色阶（直接可用：bg-slate-2 / text-slate-11 / border-slate-6） ---- */
+  --color-slate-1: var(--slate-1);
+  --color-slate-2: var(--slate-2);
+  --color-slate-3: var(--slate-3);
+  --color-slate-4: var(--slate-4);
+  --color-slate-5: var(--slate-5);
+  --color-slate-6: var(--slate-6);
+  --color-slate-7: var(--slate-7);
+  --color-slate-8: var(--slate-8);
+  --color-slate-9: var(--slate-9);
+  --color-slate-10: var(--slate-10);
+  --color-slate-11: var(--slate-11);
+  --color-slate-12: var(--slate-12);
+
+  /* ---- shadcn 语义层（名字保持不变，值换成 Radix Slate） ---- */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset: var(--ring-offset);
+
+  /* ---- 状态语义（五个语义 × 五种用途） ----
+     用法：text-success（文字，过 4.5:1）
+           bg-success-subtle + text-success（浅色底片，过 4.5:1）
+           bg-success-dot（6px 状态点，过 3:1 非文本）
+           bg-success-solid + text-success-foreground（实心块按钮） */
+  --color-success: var(--success);
+  --color-success-subtle: var(--success-subtle);
+  --color-success-dot: var(--success-dot);
+  --color-success-solid: var(--success-solid);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-border: var(--success-border);
+
+  --color-warning: var(--warning);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-warning-dot: var(--warning-dot);
+  --color-warning-solid: var(--warning-solid);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-border: var(--warning-border);
+
+  --color-danger: var(--danger);
+  --color-danger-subtle: var(--danger-subtle);
+  --color-danger-dot: var(--danger-dot);
+  --color-danger-solid: var(--danger-solid);
+  --color-danger-foreground: var(--danger-foreground);
+  --color-danger-border: var(--danger-border);
+
+  --color-info: var(--info);
+  --color-info-subtle: var(--info-subtle);
+  --color-info-dot: var(--info-dot);
+  --color-info-solid: var(--info-solid);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-border: var(--info-border);
+
+  --color-idle: var(--idle);
+  --color-idle-subtle: var(--idle-subtle);
+  --color-idle-dot: var(--idle-dot);
+  --color-idle-border: var(--idle-border);
+
+  /* ---- 图表 ---- */
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  /* ---- 代码高亮 ---- */
+  --color-code-bg: var(--code-bg);
+  --color-tok-kw: var(--tok-kw);
+  --color-tok-str: var(--tok-str);
+  --color-tok-num: var(--tok-num);
+  --color-tok-com: var(--tok-com);
+  --color-tok-fn: var(--tok-fn);
+  --color-tok-punct: var(--tok-punct);
+
+  /* ---- 侧栏 ---- */
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* ---- 材质：Geist 的阴影描边做法 ---- */
+  --shadow-border: 0 0 0 1px var(--border);
+  --shadow-border-subtle: 0 0 0 1px var(--border-subtle);
+  --shadow-xs: 0 1px 2px rgb(0 0 0 / 0.04);
+  --shadow-sm: 0 2px 2px rgb(0 0 0 / 0.04);
+  --shadow-md: 0 2px 2px rgb(0 0 0 / 0.04), 0 8px 8px -8px rgb(0 0 0 / 0.04);
+  --shadow-lg: 0 2px 2px rgb(0 0 0 / 0.04), 0 8px 16px -4px rgb(0 0 0 / 0.06);
+}
+
+/* ==========================================================================
+   2. 亮色主题
+   ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* Radix Slate · 12 档 */
+  --slate-1: #fcfcfd;
+  --slate-2: #f9f9fb;
+  --slate-3: #f0f0f3;
+  --slate-4: #e8e8ec;
+  --slate-5: #e0e1e6;
+  --slate-6: #d9d9e0;
+  --slate-7: #cdced6;
+  --slate-8: #b9bbc6;
+  --slate-9: #8b8d98;
+  --slate-10: #80838d;
+  --slate-11: #60646c;
+  --slate-12: #1c2024;
+
+  /* P3 渐进增强：广色域屏上更饱和，不支持则用上面的 hex */
+  @supports (color: color(display-p3 1 1 1)) {
+    --slate-1: color(display-p3 0.988 0.988 0.992);
+    --slate-2: color(display-p3 0.976 0.976 0.984);
+    --slate-3: color(display-p3 0.94 0.941 0.953);
+    --slate-4: color(display-p3 0.908 0.909 0.925);
+    --slate-5: color(display-p3 0.88 0.881 0.901);
+    --slate-6: color(display-p3 0.85 0.852 0.876);
+    --slate-7: color(display-p3 0.805 0.808 0.838);
+    --slate-8: color(display-p3 0.727 0.733 0.773);
+    --slate-9: color(display-p3 0.547 0.553 0.592);
+    --slate-10: color(display-p3 0.503 0.512 0.549);
+    --slate-11: color(display-p3 0.379 0.392 0.421);
+    --slate-12: color(display-p3 0.113 0.125 0.14);
+  }
+
+  /* 页面分层：页面 slate-1，卡片纯白浮起，侧栏 slate-2 沉下 */
+  --background: #fcfcfd;
+  --foreground: #1c2024;
+  --card: #ffffff;
+  --card-foreground: #1c2024;
+  --popover: #ffffff;
+  --popover-foreground: #1c2024;
+
+  --primary: #1c2024;
+  --primary-foreground: #fcfcfd;
+  --secondary: #f0f0f3;
+  --secondary-foreground: #1c2024;
+  --muted: #f9f9fb;
+  --muted-foreground: #60646c;      /* on 页面底 5.79:1 ✓ */
+  --accent: #f0f0f3;
+  --accent-foreground: #1c2024;
+
+  /* step 6 = 结构性边框（卡片、面板）；step 4 = 极轻分隔线（表格行、工具条） */
+  --border: #d9d9e0;
+  --border-subtle: #e8e8ec;
+  /* 输入框边框用 slate-9（3.30:1 on 白）—— 交互组件的外框受 WCAG 1.4.11 约束，
+     必须达到非文本 3:1。结构性边框（卡片、分隔线）是装饰性的，不在该条款范围内，
+     所以用更浅的 slate-6，避免整页都是硬黑框。这是有依据的区别对待。 */
+  --input: #8b8d98;
+  --ring: #0090ff;
+  --ring-offset: #fcfcfd;
+
+  /* 状态色 · 亮色
+     ── 亮色配色规律 ──
+     文字：不低于 step-11 的深度，保证在 page / card / slate-2 / slate-3 / 自己的底片
+           五种表面上**全部** ≥4.5:1（实测最低 4.56）
+     实心块：同色 + 白字，全部 ≥4.5:1
+     状态点：step-10 深度，全部 ≥3:1（非文本门槛）
+     底片：用 **step-2** 而非 step-3 —— Radix 保证的配对是「11 on 2」而不是「11 on 3」，
+           且浅色底片必须贴近页面亮度，否则压掉文字的对比度
+     警告是唯一需要特殊取值的语义：amber-9/10 只有 1.54/1.67（Radix 官方说明这两档
+     是为「深色文字放在它上面」设计的），所以文字与状态点都取更深的 #a15c00 */
+  --success: #1d7a51;
+  --success-subtle: #f4fbf6;
+  --success-border: #adddc0;
+  --success-dot: #2b9a66;           /* 3.46:1 */
+  --success-solid: #1d7a51;         /* +白字 5.31:1 ✓ */
+  --success-foreground: #ffffff;
+
+  --warning: #a15c00;               /* 5.06:1 on 页面底 */
+  --warning-subtle: #fefbe9;
+  --warning-border: #f3d673;
+  --warning-dot: #a15c00;           /* 特例：amber-10 仅 1.67:1，不可用 */
+  --warning-solid: #a15c00;         /* +白字 5.19:1 ✓ */
+  --warning-foreground: #ffffff;
+
+  --danger: #ce2c31;                /* 5.08:1 on 页面底 */
+  --danger-subtle: #fff7f7;
+  --danger-border: #fdbdbe;
+  --danger-dot: #dc3e42;            /* 4.26:1 */
+  --danger-solid: #ce2c31;          /* +白字 5.21:1 ✓ */
+  --danger-foreground: #ffffff;
+
+  --info: #0c6cbf;                  /* 5.23:1 on 页面底 */
+  --info-subtle: #f4faff;
+  --info-border: #acd8fc;
+  --info-dot: #0588f0;              /* 3.54:1 */
+  --info-solid: #0c6cbf;            /* +白字 5.37:1 ✓ */
+  --info-foreground: #ffffff;
+
+  --idle: #60646c;                  /* 5.79:1 on 页面底 */
+  --idle-subtle: #f9f9fb;
+  --idle-border: #d9d9e0;
+  --idle-dot: #80838d;              /* 3.69:1 */
+
+  /* shadcn 的 destructive 复用 danger（Button/Alert 的 destructive 变体读它） */
+  --destructive: #ce2c31;
+  --destructive-foreground: #ffffff;
+
+  /* 图表：单序列为主，所以 chart-1 是主角。全部实测过 3:1 非文本门槛 */
+  --chart-1: #0090ff;               /* 3.26:1 —— 主序列（消耗积分） */
+  --chart-2: #30a46c;               /* 3.16:1 —— 次序列（请求数） */
+  --chart-3: #ef5f00;               /* 3.33:1 —— 第三序列（失败数） */
+  --chart-4: #8e4ec6;               /* 5.18:1 —— 第四序列 */
+  --chart-5: #80838d;               /* 3.78:1 —— 中性/其它 */
+
+  /* 代码高亮 */
+  --code-bg: #f9f9fb;
+  --tok-kw: #0d74ce;
+  --tok-str: #218358;
+  --tok-num: #ab6400;
+  --tok-com: #60646c;
+  --tok-fn: #7c2ea3;
+  --tok-punct: #1c2024;
+
+  /* 侧栏 */
+  --sidebar: #f9f9fb;
+  --sidebar-foreground: #1c2024;
+  --sidebar-primary: #1c2024;
+  --sidebar-primary-foreground: #fcfcfd;
+  --sidebar-accent: #f0f0f3;
+  --sidebar-accent-foreground: #1c2024;
+  --sidebar-border: #e8e8ec;
+  --sidebar-ring: #0090ff;
+
+  --radius: 6px;
+}
+
+/* ==========================================================================
+   3. 暗色主题
+   ========================================================================== */
+
+.dark {
+  color-scheme: dark;
+
+  --slate-1: #111113;
+  --slate-2: #18191b;
+  --slate-3: #212225;
+  --slate-4: #272a2d;
+  --slate-5: #2e3135;
+  --slate-6: #363a3f;
+  --slate-7: #43484e;
+  --slate-8: #5a6169;
+  --slate-9: #696e77;
+  --slate-10: #777b84;
+  --slate-11: #b0b4ba;
+  --slate-12: #edeef0;
+
+  @supports (color: color(display-p3 1 1 1)) {
+    --slate-1: color(display-p3 0.067 0.067 0.074);
+    --slate-2: color(display-p3 0.095 0.098 0.105);
+    --slate-3: color(display-p3 0.13 0.135 0.145);
+    --slate-4: color(display-p3 0.156 0.163 0.176);
+    --slate-5: color(display-p3 0.183 0.191 0.206);
+    --slate-6: color(display-p3 0.215 0.226 0.244);
+    --slate-7: color(display-p3 0.265 0.28 0.302);
+    --slate-8: color(display-p3 0.357 0.381 0.409);
+    --slate-9: color(display-p3 0.415 0.431 0.463);
+    --slate-10: color(display-p3 0.469 0.483 0.514);
+    --slate-11: color(display-p3 0.692 0.704 0.728);
+    --slate-12: color(display-p3 0.93 0.933 0.94);
+  }
+
+  /* 不用纯黑。层级靠表面明度：页面 slate-1 → 卡片 slate-2 → 弹层 slate-3 */
+  --background: #111113;
+  --foreground: #edeef0;
+  --card: #18191b;
+  --card-foreground: #edeef0;
+  --popover: #212225;
+  --popover-foreground: #edeef0;
+
+  --primary: #edeef0;
+  --primary-foreground: #111113;
+  --secondary: #272a2d;
+  --secondary-foreground: #edeef0;
+  --muted: #212225;
+  --muted-foreground: #b0b4ba;      /* on 页面底 9.06:1 ✓ */
+  --accent: #272a2d;
+  --accent-foreground: #edeef0;
+
+  --border: #363a3f;
+  --border-subtle: #272a2d;
+  --input: #696e77;                 /* 3.43:1 on 卡片 —— 满足 1.4.11 的非文本 3:1 */
+  --ring: #0090ff;
+  --ring-offset: #111113;
+
+  /* 状态色 · 暗色
+     ── 暗色与亮色的规律**故意不同** ──
+     文字：step-11（实测 8.95–12.32 全过）
+     底片：用 **step-3** 而非 step-2 —— 亮色底片要贴近页面亮度才不压掉暗字，
+           暗色底片则要比页面亮一点才看得出"这是一块浅色底"，而浅色文字在更亮的
+           底片上对比度依然充足（实测 7.08–10.26）
+     实心块：**配深字 #111113，不是白字**。实测暗色下所有饱和实心色配白字
+           都不达 4.5:1（green-9 仅 3.16、blue-9 仅 3.26、red-9 仅 3.91），
+           而配深字全部通过（5.97 / 5.78 / 4.82 / 11.95）。
+           Radix / shadcn 默认的白字方案在这个门槛下是不合格的，这里按实测取值。 */
+  --success: #3dd68c;               /* 10.06:1 on 页面底 */
+  --success-subtle: #132d21;
+  --success-border: #20573e;
+  --success-dot: #30a46c;           /* 5.97:1 */
+  --success-solid: #30a46c;
+  --success-foreground: #111113;
+
+  --warning: #ffca16;               /* 12.32:1 on 页面底 */
+  --warning-subtle: #302008;
+  --warning-border: #5c3d05;
+  --warning-dot: #ffc53d;           /* 11.95:1 —— 暗色下没有亮色那个问题 */
+  --warning-solid: #ffc53d;
+  --warning-foreground: #111113;
+
+  --danger: #ff9592;                /* 8.95:1 on 页面底 */
+  --danger-subtle: #3b1219;
+  --danger-border: #72232d;
+  --danger-dot: #e5484d;            /* 4.82:1 */
+  --danger-solid: #e5484d;
+  --danger-foreground: #111113;     /* 4.82:1 ✓（白字只有 3.91，不合格） */
+
+  --info: #70b8ff;                  /* 8.97:1 on 页面底 */
+  --info-subtle: #0d2847;
+  --info-border: #205d9e;
+  --info-dot: #0090ff;              /* 5.78:1 */
+  --info-solid: #0090ff;
+  --info-foreground: #111113;
+
+  --idle: #b0b4ba;                  /* 9.06:1 on 页面底 */
+  --idle-subtle: #212225;
+  --idle-border: #363a3f;
+  --idle-dot: #696e77;              /* 3.68:1 */
+
+  --destructive: #e5484d;
+  --destructive-foreground: #111113;
+
+  --chart-1: #0090ff;               /* 5.78:1 */
+  --chart-2: #30a46c;               /* 5.97:1 */
+  --chart-3: #f76b15;               /* 5.92:1 */
+  --chart-4: #b07ff0;               /* 5.98:1 */
+  --chart-5: #8b8d98;               /* 5.33:1 */
+
+  --code-bg: #18191b;
+  --tok-kw: #70b8ff;
+  --tok-str: #3dd68c;
+  --tok-num: #ffca16;
+  --tok-com: #b0b4ba;
+  --tok-fn: #d4a0ff;
+  --tok-punct: #edeef0;
+
+  --sidebar: #111113;
+  --sidebar-foreground: #edeef0;
+  --sidebar-primary: #edeef0;
+  --sidebar-primary-foreground: #111113;
+  --sidebar-accent: #272a2d;
+  --sidebar-accent-foreground: #edeef0;
+  --sidebar-border: #272a2d;
+  --sidebar-ring: #0090ff;
+}
+
+/* ==========================================================================
+   4. 基础层
+   ========================================================================== */
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    font-family: var(--font-sans);
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-size: 14px;
+    line-height: 20px;
+    /* 中文排版：不用连字、允许在 CJK 之间断行，避免长模型名撑破容器 */
+    font-variant-ligatures: none;
+    overflow-wrap: break-word;
+  }
+
+  /* 键盘焦点环：Geist 的「2px 隔离环 + 2px 强调环」。
+     放在基础层是**兜底** —— 带 ring 工具类的 shadcn 组件会覆盖它。
+     禁止 outline:none 了事（违反 WCAG 2.4.7）。 */
+  :focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--ring-offset), 0 0 0 4px var(--ring);
+  }
+
+  ::selection {
+    background-color: color-mix(in oklab, var(--ring) 26%, transparent);
+  }
+
+  /* 尊重系统的减弱动效偏好 */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* ==========================================================================
+   5. 工具类
+   ========================================================================== */
+
+@layer utilities {
+  /* 等宽数字 —— 本项目最值钱的一条工具类。
+     轮询刷新时数字宽度不变，KPI 不会左右跳动；表格小数点纵向对齐。 */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  /* Geist 的「阴影描边」：不占布局空间，且贴合任意圆角 */
+  .border-shadow {
+    box-shadow: 0 0 0 1px var(--border);
+  }
+  .border-shadow-subtle {
+    box-shadow: 0 0 0 1px var(--border-subtle);
+  }
+
+  /* 细滚动条：表格与日志面板内部使用。
+     全局不改滚动条，避免破坏 macOS 的原生 overlay 行为。 */
+  .scroll-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--slate-7) transparent;
+  }
+  .scroll-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scroll-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scroll-thin::-webkit-scrollbar-thumb {
+    background-color: var(--slate-7);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  .scroll-thin::-webkit-scrollbar-thumb:hover {
+    background-color: var(--slate-8);
+  }
+
+  /* skeleton 的呼吸动画：只动透明度，不动位置，避免布局抖动 */
+  @keyframes wbgw-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+  }
+  .animate-wbgw-pulse {
+    animation: wbgw-pulse 1.6s var(--ease-in-out-std) infinite;
+  }
+}

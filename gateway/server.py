@@ -206,8 +206,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/":
             self._dashboard()
             return
-        # 面板的静态资源（内嵌的 Shoelace 组件库）。和 / 一样不需要 key：
-        # 浏览器加载页面时不会带 Authorization 头。Host 校验已在上面做过。
+        # 控制台前端的静态资源（web/ 的构建产物：带 hash 的 JS / CSS / woff2 字体）。
+        # 和 / 一样不需要 key：浏览器加载页面时不会带 Authorization 头。
+        # Host 校验已在上面做过。
         if path.startswith("/static/"):
             self._static(path[len("/static/"):])
             return

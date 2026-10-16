@@ -8,11 +8,17 @@
 - 凭据自动续期（30 天 token，无需重新登录）
 - **半自动签到**：网关负责检测「今天能不能领」，领取动作需要你点按钮
 
-> **关于依赖**：Python 侧仍然是纯标准库（打包的 Python 装不了原生 wheel）。
-> 但控制台界面在 2026-10-16 改用了内嵌的 **[Shoelace](https://shoelace.style) 2.20.1**（MIT）组件库，
-> 放在 `gateway/static/vendor/shoelace/`（1.7 MB / 313 文件，已按需裁剪掉 8.5 MB 图标集里没用到的那部分）。
-> **内嵌而不是走 CDN**，是为了保持「断网也能打开面板」和「不向外部发请求」这两点。
-> 不喜欢的话删掉 `gateway/static/vendor/` 即可回退到无样式的裸页面 —— 功能不受影响。
+> **关于依赖**：网关进程本身仍然是纯 Python 标准库，`./run.sh` 直接起，不需要 pip 装任何东西。
+>
+> 控制台前端在 2026-10-16 完全重写为 **React 19 + Vite 8 + Tailwind v4 + shadcn/ui**，
+> 构建产物（HTML / JS / CSS / 字体，约 1.2 MB）**提交进仓库**，所以运行时依然不需要 Node，
+> 也不需要联网 —— 「断网也能打开面板」这条继续成立。只有改前端时才需要 Node + pnpm，
+> 见下面「控制台前端」。
+>
+> ⚠️ 更正一条此前写错的说法：**打包的 Python 是可以安装原生 wheel 的**。
+> 实测 `dsh-primary-runtime` 里那个 3.12.14 自带可用的 pip 26.2.1，
+> 且 numpy 2.3.5 / lxml 6.1.3 / pillow 12.3.0 / pandas 3.0.1 均已装好并能正常 import。
+> 所以后端不引第三方依赖是**设计选择**（减少部署面），不是能力所限。
 
 ---
 
@@ -29,53 +35,49 @@
 base_url 填：http://127.0.0.1:8788/v1
 ```
 
-打开 <http://127.0.0.1:8788/> 就是控制台。界面用内嵌的 **Shoelace** 组件库搭（tab / button / input / badge /
-alert / tooltip 都是它的组件），自定义的密集表格也走它的设计 token，所以深浅色、圆角、间距是一套。
+打开 <http://127.0.0.1:8788/> 就是控制台。
 
-![控制台概览](docs/sl-overview.png)
+![控制台概览](docs/screenshots/overview-light.png)
 
-三个页签支持深链，例如 <http://127.0.0.1:8788/?tab=models>：
+四个页签，都用 **HashRouter** 深链（URL 形如 `#/models?facet=free`）：
 
 | 页签 | 内容 |
 |---|---|
-| 概览 | 单行指标条（账号 / 区域 / 模型 / 签到 / 请求 / 失败 / 消耗 / 运行 / Gemini 后端）· 账号表 · 签到 · 请求日志 |
-| 模型 | 12 个家族分组的模型列表，分面筛选（全部 / 免费 / 国内版 / Gemini·Claude）、四种排序、搜索，点一下复制模型名 |
-| 用量 | 时间窗口表 + 近 30 天柱状图 + 模型/账号明细，详见下面「用量统计」 |
-| 接入 | base_url、API key、**实际生效的 Gemini 后端**、state 目录，以及 curl / Python / Node 复制即用片段 |
+| 概览 | 单行指标条 · **只在出问题时才出现**的健康横幅 · 账号表 · 签到 · 最近请求日志 |
+| 模型 | 51 个模型，按家族分组，分面筛选（全部 / 免费 / 国内 / 国际）+ 四种排序 + 搜索，点模型 ID 复制 |
+| 用量 | 窗口选择（7/30/90 天）· 指标可切（请求 / 积分 / tokens）的每日柱状图 · 按模型 / 按账号明细 |
+| 接入 | base_url、API key（**默认遮住**）、Gemini 后端、state 目录，以及 curl / Python / Node 复制即用片段 |
 
-> 账号表、签到、日志原本是三个独立页签，内容与概览重复，已合并进概览。
-> 深链参数：`?tab=overview|models|connect`、`?theme=dark|light`、
-> `?facet=all|free|cn|global`、`?sort=family|cost|ctx|name`、`?q=关键词`。
+![模型页](docs/screenshots/models-light.png)
 
-![模型页](docs/sl-models.png)
+![用量](docs/screenshots/usage-light.png)
 
-用量页：
+深色主题（点顶栏图标切换，或 `?theme=dark`）。深色不是把亮色反过来，而是**用表面亮度分层**
+反推出来的圆角与边框对比：
 
-![用量](docs/sl-usage.png)
+![深色主题](docs/screenshots/overview-dark.png)
 
-深色主题（点顶栏图标切换，或 `?theme=dark`）：
-
-![深色主题](docs/sl-dark.png)
+**全键盘可达**：`⌘K` / `Ctrl+K` 打开命令面板（跳页、搜模型、重载凭据、端到端自检、复制 base_url），
+`⌘B` 折叠侧栏，`Esc` 关闭弹层，Tab 焦点环按 WCAG 2.4.11 做了 3:1 对比度校正。
 
 **打开即用**：面板不需要你手填 key —— 服务端在返回页面时就把 key 注入了（只在这一个回环地址上）。
 
-> ⚠️ **想截图发人之前先看这条**：「接入」页的 curl / Python / Node 片段里嵌的是**完整 API key**
-> （实测该页出现 10 次），截图会把 key 直接变成像素送出去。README 里因此**不放接入页的截图**。
-> 概览页没有 key，但会露出账号昵称与 uin。
-
-> ⚠️ **安全说明（这条很重要）**：因为注入了 key，`GET /` 返回的 HTML 里**含有你的 API key**。
-> 这带来两个直接后果：
-> 1. **不要把面板的页面源码截图/分享出去** —— key 会跟着泄露。
-> 2. 服务端为此加了 **Host 头校验**：只接受 `127.0.0.1` / `localhost` / `::1`，
->    其它 Host（含 DNS rebinding 用的攻击者域名）一律 403。否则外部网页可以把域名解析到
->    127.0.0.1，以同源身份把 key 读走。
+> ⚠️ **关于 key 泄露**：`GET /` 返回的 HTML 里**含有你的 API key**（注入脚本里）。
+> 两条相关的行为：
+> 1. **「接入」页默认把 key 遮住**（显示成 `sk-wb-2U…8rTk`），要按「显示密钥」才展开 ——
+>    所以这一页现在可以安全截图了。复制按钮复制的始终是真实值，遮罩不影响复制。
+> 2. 但**页面源码仍然含完整 key**，所以不要分享「查看源代码」或 DevTools 截图。
 >
-> 如果你不接受 key 出现在页面里，把 `gateway/static/dashboard.html` 里那行
-> `window.__DSH_GATEWAY_KEY__ = "__GATEWAY_KEY__";` 删掉即可 —— 面板会退回成
-> 「手动点右上角填 key」，其余功能不受影响。
+> 服务端为此加了 **Host 头校验**：只接受 `127.0.0.1` / `localhost` / `::1`，
+> 其它 Host（含 DNS rebinding 用的攻击者域名）一律 403。否则外部网页可以把域名解析到
+> 127.0.0.1，以同源身份把 key 读走。
+>
+> 如果你不接受 key 出现在页面里，把 `web/dashboard.html` 里那行
+> `window.__DSH_GATEWAY_KEY__ = "__GATEWAY_KEY__";` 删掉并重新构建即可 —— 面板会退回成
+> 「手动填 key」的界面（有专门的输入页），其余功能不受影响。
 
-面板本身出问题时**会在页面顶部显示红色错误横幅**（脚本异常、key 不对、连不上网关、用 file:// 打开
-都会被明确告知），不会再出现「一片空白不知道哪儿坏了」的情况。
+前端异常**不会再白屏**：`ErrorBoundary` 会显示错误摘要 + 重试按钮；key 不对或连不上网关时，
+会显示专门的「密钥闸门」页面并告诉你 key 在 `.env` 的哪一行。
 
 ### 在任何 harness 里这样填
 
@@ -192,18 +194,104 @@ SSE 翻成 OpenAI 的 `chat.completion.chunk`，`finishReason` 映射为 `stop` 
 
 ---
 
+## 控制台前端
+
+### 技术选型
+
+| 关注点 | 选择 | 为什么 |
+|---|---|---|
+| 框架 | React 19 + Vite 8 + TypeScript 5.9 | 生态最成熟，AI 辅助编码的资料最多 |
+| 样式 | Tailwind v4 | 与 shadcn/ui 配套；token 直接用 CSS 变量，深浅色切换不需要 JS 参与 |
+| 组件 | **shadcn/ui**（radix-nova 预设） | 组件源码进仓库（不是黑盒依赖），可审计、可改；底层是 Radix 的无障碍原语 |
+| 数据 | TanStack Query | 轮询、缓存、失效、重试都是声明式的，不用手写 `setInterval` + 状态机 |
+| 路由 | react-router（HashRouter） | 用 hash 是为了**服务端一行都不用改**：不需要 SPA 回退 |
+| 图表 | recharts | 与 shadcn 的 chart 组件同源 |
+| 字体 | Geist / Geist Mono（自托管 woff2） | 界面数字用 `tabular-nums`，轮询刷新时不会左右抖动 |
+
+### 设计原则（可执行的那部分）
+
+完整调研见 [`docs/设计调研.md`](docs/设计调研.md)，这里只说三条会被代码强制的：
+
+1. **状态用「6px 圆点 + 单色文字」，不用彩色 pill。** 一行里出现三五个彩色圆角标签就是
+   「Badge 汤」：彩色面积过大 → 强调失效。颜色在这个界面里**只表示状态**，
+   所以它一旦出现就必然意味着「看这里」。
+2. **KPI 用一行 inline 统计条，不是一排等权重彩色卡片。**
+   卡片化会把 6 个数字变成 6 个等权重视觉块，人眼扫描依赖差异，等权重等于没有优先序。
+3. **每个数字都 tnum + 右对齐，每个 ID 都等宽字体。** 表格逐行参差是「业余感」的主要来源。
+
+### 无障碍是实测的，不是估的
+
+```bash
+cd web
+pnpm run check:contrast     # 92 条断言，浅色 + 深色
+```
+
+它解析 `src/index.css` 里的 token、解析 `var()` 链、按 WCAG 公式算真实对比度，任一不达标就非 0 退出。
+实测揪出并修掉的问题（都是改 token 值，不是放宽阈值）：
+
+- 浅色下**没有任何 step-9 实心色**能让白字过 AA（red-9 仅 3.91、amber-9 仅 1.58）→ 实心底改用 step-11
+- amber 的 step-9/10 是给「深色文字放在它上面」设计的，当状态点只有 1.54–1.67 → 改用 amber-11
+- 深色下实心底配白字只有 3.16–3.91 → 深色的 `-foreground` 全部改成深色文字（不是白字）
+- shadcn 预设的 `focus-visible:ring-ring/50` 只有 1.81:1（亮）/ 2.26:1（暗），
+  达不到 2.4.11 的 3:1 → 12 个组件里全部改为全不透明
+
+### 界面验收
+
+```bash
+cd web
+pnpm run verify          # headless Chrome 跑 56 项断言
+pnpm run verify:shots    # 顺便刷新 docs/screenshots/
+```
+
+覆盖：key 注入正确且**不被渲染成可见文本**、四个页面都能渲染、无横向溢出、
+字体与 tnum 生效、主题切换、命令面板开关、路由与**旧深链翻译**、
+模型的 null 倍率显示为「—」而不是「免费」、接入页默认不泄露 key、控制台零错误零失败请求。
+
+> 为什么要有这个脚本：截图无法被自动化审查，所以「看起来对不对」必须尽量转成可断言的量。
+> 改完样式跑一遍，避免靠肉眼回归。
+
+### 改前端
+
+```bash
+cd web
+pnpm install          # 只有改前端时才需要 Node
+pnpm run dev          # 起 Vite dev server，代理 /admin /v1 /healthz 到 8788
+pnpm run typecheck
+pnpm run build        # 输出到 ../gateway/static/（构建产物要提交）
+```
+
+两个容易踩的坑，已经在 `vite.config.ts` 里处理好了：
+
+- **构建会覆盖 `gateway/static/dashboard.html`**（这是设计如此），但插件只清理 `assets/`，
+  不会误删整个 `static/`。
+- **dev 模式下 Vite 直接吐 HTML，不走服务端的 key 注入**，页面会一直是 401。
+  所以加了一个 `transformIndexHtml` 插件从 `.env` 读 key 补上，让 dev 和线上行为一致。
+
+`gateway/static/assets/` 和 `gateway/static/dashboard.html` **必须提交进仓库** ——
+它们是运行时产物，不提交的话 `./run.sh` 起来就是一个空白页。（`.gitignore` 里有注释说明。）
+
+---
+
 ## 测试
 
 ```bash
-./tests/run_all.sh              # 全部（含少量真实请求）
-./tests/run_all.sh --no-live    # 跳过需要真实上游的探针
+./tests/run_all.sh              # 后端回归：全部（含少量真实请求）
+./tests/run_all.sh --no-live    # 后端回归：跳过需要真实上游的探针
+
+cd web
+pnpm run check:contrast         # 前端：对比度实测（92 条断言）
+pnpm run verify                 # 前端：界面自动化验收（56 项断言）
+pnpm run check:all              # 上面两项 + typecheck + build，一条命令全过
 ```
 
 | 套件 | 覆盖 | 现状 |
 |---|---|---|
 | `test_cooldown.py` | 限流重置时间解析、时区/负偏移、越界值、`mktime` 归一化陷阱、`retry_after_s` 真的被账号池用上 | **15/15** |
+| `test_usage.py` | 用量聚合、窗口口径、测试流量单独计数 | — |
 | `test_failover.py` | 故障注入：排序生效、假 token 被拒、错误归类、换号、`client` 不换号、`credit` 出池、临时账号不落盘 | **10/10** |
 | `test_harness_compat.py` | `system`+多轮、`tools`、`include_usage`、`max_tokens`、错误形状、并发流 | **13/13** |
+| `web/scripts/check-contrast.mjs` | WCAG 对比度：正文 4.5:1、非文本 3:1，浅色 + 深色两套 token | **92/92** |
+| `web/scripts/verify-ui.mjs` | 界面：渲染、溢出、字体、tnum、主题、命令面板、路由、深链、key 不泄露、零控制台错误 | **56/56** |
 
 `tests/mock_gemini.py` 是一个说 Gemini 协议的本地假上游，用来在没有真 key 的情况下验证 Gemini 转换层：
 
@@ -241,18 +329,33 @@ gateway/
   pool.py      账号池：选择、失败分类、换号、记账
   activity.py  请求活动环形缓冲（只记元数据，不记对话内容）
   server.py    HTTP 层（OpenAI 兼容路由 + /admin/*）
-  static/
-    dashboard.html   控制台界面（独立文件，可直接改）
-    vendor/
-      shoelace/      内嵌的 Shoelace 2.20.1（MIT），仅运行时必需部分
+  static/      ← 前端**构建产物**，不要直接改这里的文件
+    dashboard.html          由 web/dashboard.html 构建而来（含 key 注入占位符）
+    assets/                 带 hash 的 JS / CSS / 字体
+web/           ← 前端源码（改这里，然后 pnpm build）
+  dashboard.html    Vite 入口（含预绘制主题脚本与 key 占位符）
+  src/
+    index.css       设计 token 层（颜色/字号/圆角/阴影，深浅两套）
+    app.tsx         路由与外壳（HashRouter + 路由级代码分割）
+    routes/         四个页面
+    components/ui/  shadcn/ui 组件（21 个，已裁掉未使用的）
+    lib/            api / types / format / key / clipboard / 旧深链翻译
+    hooks/          TanStack Query 封装、主题
+  scripts/
+    check-contrast.mjs  对比度实测（92 条断言，两种主题）
+    verify-ui.mjs       浏览器端自动化验收（56 项断言）
 tests/
   run_all.sh            回归入口
   test_cooldown.py      限流重置时间解析
+  test_usage.py         用量聚合
   test_failover.py      换号契约（故障注入）
   test_harness_compat.py harness 兼容性
   mock_gemini.py        假 Gemini 上游
 tools/
   read_creds.mjs   at-rest 加密字段的解密助手
+docs/
+  设计调研.md      设计原则、token 取值依据、对比度实测、反面清单
+  screenshots/     README 用的界面截图（由 verify-ui.mjs --shots 生成）
 state/        自有凭据库（0600）与日志
   usage.jsonl     用量记录（0600，追加式，每行一次请求）
 ```

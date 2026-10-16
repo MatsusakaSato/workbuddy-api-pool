@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="light dark" />
+<meta name="robots" content="noindex, nofollow" />
+<title>WorkBuddy 网关</title>
+
+<!--
+  服务端密钥注入点。gateway/server.py 的 _dashboard() 对页面上那个**带双引号的
+  占位符**做全局字面替换，把真实 key 注进来。
+
+  两条约束：
+  1. 占位符必须原样保留（含两侧双引号）—— 它就是下面 script 里的那个值；
+  2. 必须是**普通 script**（非 type="module"），否则 Vite 会改写它，注入失效。
+
+  注意：注入是全局字符串替换，所以本文件的注释里**不要**再出现那个带引号的
+  占位符字面量，否则会被一并替换，key 在页面里多出几份。
+-->
+<script>window.__DSH_GATEWAY_KEY__ = "__GATEWAY_KEY__";</script>
+
+<!--
+  预绘制主题：在首帧之前把 .dark 挂上，避免刷新时闪白。
+  支持 ?theme=dark|light|system 深链；localStorage 键沿用旧版的 wbgw_theme，
+  所以老用户已有的偏好不会丢。
+-->
+<script>
+try {
+  var q = new URLSearchParams(location.search).get('theme');
+  if (q === 'dark' || q === 'light' || q === 'system') localStorage.setItem('wbgw_theme', q);
+  var t = localStorage.getItem('wbgw_theme') || 'system';
+  var dark = t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  if (dark) document.documentElement.classList.add('dark');
+  document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+} catch (e) {}
+</script>
+
+<!-- 内联 favicon：省一次请求，也不会 404。用强调色底，深浅色标签栏上都看得见。 -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230090ff'/%3E%3Cpath d='M18 4 8.5 18.5H14L12.5 28l9.5-14.5H16.5z' fill='%23fff'/%3E%3C/svg%3E" />
+</head>
+<body>
+<div id="root"></div>
+<script type="module" src="/src/main.tsx"></script>
+</body>
+</html>

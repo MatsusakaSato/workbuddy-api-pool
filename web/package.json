@@ -1,0 +1,45 @@
+{
+  "name": "workbuddy-gateway-console",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "WorkBuddy 统一网关的本地控制台（构建产物落在 ../gateway/static/）",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "verify": "node scripts/verify-ui.mjs",
+    "verify:shots": "node scripts/verify-ui.mjs --shots",
+    "check:contrast": "node scripts/check-contrast.mjs",
+    "check:all": "pnpm run typecheck && pnpm run check:contrast && pnpm run build && pnpm run verify"
+  },
+  "dependencies": {
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@tanstack/react-query": "^5.104.2",
+    "class-variance-authority": "^0.7.1",
+    "cmdk": "^1.1.1",
+    "cn": "^0.4.0",
+    "lucide-react": "^1.57.0",
+    "radix-ui": "^1.8.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-router": "^8.4.0",
+    "recharts": "3.8.0",
+    "sonner": "^2.0.8",
+    "tw-animate-css": "^1.4.0"
+  },
+  "devDependencies": {
+    "@radix-ui/colors": "^3.0.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "playwright-core": "^1.64.1",
+    "shadcn": "^4.21.5",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~5.9.3",
+    "vite": "^8.3.4"
+  }
+}
