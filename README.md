@@ -46,7 +46,7 @@ base_url 填：http://127.0.0.1:8788/v1
 | 概览 | 单行指标条 · **只在出问题时才出现**的健康横幅 · 账号表 · 签到 · 最近请求日志 |
 | 模型 | 51 个模型，按家族分组，分面筛选（全部 / 免费 / 国内 / 国际）+ 四种排序 + 搜索，点模型 ID 复制 |
 | 用量 | 窗口选择（7/30/90 天）· 指标可切（请求 / 积分 / tokens）的每日柱状图 · 按模型 / 按账号明细 |
-| 接入 | base_url、API key（**默认遮住**）、Gemini 后端、state 目录，以及 curl / Python / Node 复制即用片段 |
+| 接入 | base_url、API key（**默认遮住**）、Gemini 后端、state 目录，以及 curl / Python / Node 复制即用片段（**带语法高亮**，配色直接复用全站 token，深浅色自动跟随） |
 
 ![模型页](docs/screenshots/models-light.png)
 
@@ -239,16 +239,38 @@ pnpm run check:contrast     # 92 条断言，浅色 + 深色
 
 ```bash
 cd web
-pnpm run verify          # headless Chrome 跑 56 项断言
+pnpm run verify          # headless Chrome 跑 69 项断言
 pnpm run verify:shots    # 顺便刷新 docs/screenshots/
 ```
 
 覆盖：key 注入正确且**不被渲染成可见文本**、四个页面都能渲染、无横向溢出、
 字体与 tnum 生效、主题切换、命令面板开关、路由与**旧深链翻译**、
-模型的 null 倍率显示为「—」而不是「免费」、接入页默认不泄露 key、控制台零错误零失败请求。
+模型的 null 倍率显示为「—」而不是「免费」、接入页默认不泄露 key、
+语法高亮生效且**首屏不得加载高亮 chunk**、控制台零错误零失败请求。
 
 > 为什么要有这个脚本：截图无法被自动化审查，所以「看起来对不对」必须尽量转成可断言的量。
 > 改完样式跑一遍，避免靠肉眼回归。
+
+### 体积（实测，非估算）
+
+| 页面 | 未压缩 | gzip |
+|---|---|---|
+| 首屏（外壳 + 概览） | 531 KB | 163 KB |
+| 模型页（额外） | 38 KB | 13 KB |
+| 用量页（额外，主要是 recharts） | 345 KB | 105 KB |
+| 接入页（额外，主要是 shiki 语法包） | 463 KB | 90 KB |
+
+全部分了包：打开面板只付首屏那份，其余按访问的页面付。**网关目前没有开 gzip**
+（那是后端阶段的事），开了之后就是右边那一列。
+
+两个踩过的坑，都留了断言防回归：
+
+- 不拆包时单包 **944 KB**；路由级代码分割后首屏 531 KB，recharts 与 shiki 各自只在对应页面加载。
+- 高亮 Node 片段一开始用了 `typescript` 语法，但它一个类型标注都没有 ——
+  改用 `javascript` 语法结果一样，**省掉 181 KB**。所以 `language`（给用户看的
+  文件类型提示）和 `highlightAs`（真正的高亮语法）在代码里是两个独立参数。
+- 懒加载是会悄悄退化的：谁把 `import()` 改成静态 `import`，首屏就凭空胖 463 KB。
+  所以验收脚本里有一条专门断言「首屏不得请求任何语法 chunk」。
 
 ### 改前端
 
@@ -280,7 +302,7 @@ pnpm run build        # 输出到 ../gateway/static/（构建产物要提交）
 
 cd web
 pnpm run check:contrast         # 前端：对比度实测（92 条断言）
-pnpm run verify                 # 前端：界面自动化验收（56 项断言）
+pnpm run verify                 # 前端：界面自动化验收（69 项断言）
 pnpm run check:all              # 上面两项 + typecheck + build，一条命令全过
 ```
 
@@ -291,7 +313,7 @@ pnpm run check:all              # 上面两项 + typecheck + build，一条命�
 | `test_failover.py` | 故障注入：排序生效、假 token 被拒、错误归类、换号、`client` 不换号、`credit` 出池、临时账号不落盘 | **10/10** |
 | `test_harness_compat.py` | `system`+多轮、`tools`、`include_usage`、`max_tokens`、错误形状、并发流 | **13/13** |
 | `web/scripts/check-contrast.mjs` | WCAG 对比度：正文 4.5:1、非文本 3:1，浅色 + 深色两套 token | **92/92** |
-| `web/scripts/verify-ui.mjs` | 界面：渲染、溢出、字体、tnum、主题、命令面板、路由、深链、key 不泄露、零控制台错误 | **56/56** |
+| `web/scripts/verify-ui.mjs` | 界面：渲染、溢出、字体、tnum、主题、命令面板、路由、深链、key 不泄露、零控制台错误、语法高亮与懒加载 | **69/69** |
 
 `tests/mock_gemini.py` 是一个说 Gemini 协议的本地假上游，用来在没有真 key 的情况下验证 Gemini 转换层：
 
@@ -339,11 +361,11 @@ web/           ← 前端源码（改这里，然后 pnpm build）
     app.tsx         路由与外壳（HashRouter + 路由级代码分割）
     routes/         四个页面
     components/ui/  shadcn/ui 组件（21 个，已裁掉未使用的）
-    lib/            api / types / format / key / clipboard / 旧深链翻译
-    hooks/          TanStack Query 封装、主题
+    lib/            api / types / format / key / clipboard / 旧深链翻译 / highlighter
+    hooks/          TanStack Query 封装、主题、语法高亮
   scripts/
     check-contrast.mjs  对比度实测（92 条断言，两种主题）
-    verify-ui.mjs       浏览器端自动化验收（56 项断言）
+    verify-ui.mjs       浏览器端自动化验收（69 项断言）
 tests/
   run_all.sh            回归入口
   test_cooldown.py      限流重置时间解析

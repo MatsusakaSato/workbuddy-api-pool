@@ -28,6 +28,7 @@ import {
   CodeBlockHeader,
   CodeBlockTitle,
 } from '@/components/ui/code-block'
+import { HighlightedCode } from '@/components/highlighted-code'
 import { useModels, useSettings } from '@/hooks/use-gateway'
 import { resolveKey, maskKey } from '@/lib/key'
 import { formatInt } from '@/lib/format'
@@ -66,11 +67,18 @@ function Snippet({
   /** 复制用的真实内容；未提供时与 code 相同 */
   copyValue,
   language,
+  /**
+   * 高亮用的语法。默认跟 language 一致。
+   * 分开是因为 language 在这里兼作**给用户的文件类型提示**（"存成 .ts"），
+   * 而语法选择该按代码的实际内容来 —— 两者不一定同一个答案。
+   */
+  highlightAs,
 }: {
   title: string
   code: string
   copyValue?: string
   language?: string
+  highlightAs?: string
 }) {
   return (
     <CodeBlock size="sm" className="bg-code-bg">
@@ -83,7 +91,9 @@ function Snippet({
           <CodeBlockCopyButton value={copyValue ?? code} />
         </CodeBlockActions>
       </CodeBlockHeader>
-      <CodeBlockContent>{code}</CodeBlockContent>
+      <CodeBlockContent>
+        <HighlightedCode code={code} language={highlightAs ?? language} />
+      </CodeBlockContent>
     </CodeBlock>
   )
 }
@@ -314,6 +324,10 @@ for await (const chunk of stream) {
         <Snippet
           title="Node / TypeScript（OpenAI SDK）"
           language="ts"
+          // 这段代码里一个类型标注都没有（import / const / await / for-await），
+          // 所以用 javascript 语法高亮**结果完全一样**，但能省掉 177 KB 的
+          // typescript 语法包（它比 javascript 语法大，且只在有标注时才有差别）。
+          highlightAs="javascript"
           code={snippets.node.shown}
           copyValue={snippets.node.real}
         />

@@ -33,11 +33,27 @@ async function main() {
   const consoleErrors = []
   const pageErrors = []
   const failedRequests = []
+  /** 本次导航加载的资源（用来断言"某个 chunk 是否在这一步被请求"） */
+  let assetRequests = []
+  /**
+   * 整个会话累积加载的资源。
+   * 需要它是因为 chunk 只会在**第一次**用到时真正发请求，之后走内存缓存：
+   * 如果只看"当前这次导航"，等跑到接入页的断言时 chunk 早就加载过了，
+   * 会看到空列表而误判成"没按需加载"。
+   */
+  const allAssetRequests = []
   page.on('console', (m) => {
     if (m.type() === 'error') consoleErrors.push(m.text())
   })
   page.on('pageerror', (e) => pageErrors.push(e.message))
   page.on('requestfailed', (r) => failedRequests.push(`${r.url()} :: ${r.failure()?.errorText}`))
+  page.on('response', (r) => {
+    const path = new URL(r.url()).pathname
+    if (!path.startsWith('/static/assets/')) return
+    const name = path.split('/').pop()
+    assetRequests.push(name)
+    allAssetRequests.push(name)
+  })
 
   /* ---------------- 1. 加载与密钥注入 ---------------- */
   console.log('\n【1】加载与密钥注入')
@@ -54,6 +70,16 @@ async function main() {
   // 真正要确保的是它**不被渲染成可见文本** —— 否则截图/投屏就会泄露。
   const keyVisible = await page.evaluate(() => /sk-wb-[A-Za-z0-9]/.test(document.body.innerText))
   record('密钥未渲染为可见文本', !keyVisible)
+
+  // shiki（语法高亮）只允许在「接入」页加载。
+  // 首屏若混进来，就说明懒加载失效了 —— 这是最容易悄悄退化的性能点。
+  const HEAVY = /^(shell|python|javascript|typescript)-/
+  const heavyOnFirst = assetRequests.filter((f) => HEAVY.test(f))
+  record(
+    '首屏未加载任何语法高亮 chunk',
+    heavyOnFirst.length === 0,
+    heavyOnFirst.length ? heavyOnFirst.join(', ') : `${assetRequests.length} 个资源全部与高亮无关`,
+  )
 
   /* ---------------- 2. 外壳渲染 ---------------- */
   console.log('\n【2】外壳渲染')
@@ -362,6 +388,8 @@ async function main() {
 
   /* ---------------- 8c. 接入页 ---------------- */
   console.log('\n【8c】接入页')
+  // 清空资源记录，这样下面「按需加载了语法 chunk」才是本次导航的证据
+  assetRequests = []
   await page.goto(`${BASE}/#/connect`, { waitUntil: 'networkidle' })
   await page.waitForTimeout(900)
 
@@ -389,6 +417,49 @@ async function main() {
   await page.waitForTimeout(300)
   const rehidden = await page.evaluate(() => /sk-wb-[A-Za-z0-9]{8,}/.test(document.body.innerText))
   record('「隐藏密钥」可再次遮住', !rehidden)
+
+  /* ---- 语法高亮：颜色必须来自 --tok-*，且接入页才加载 shiki ---- */
+  // 等多两帧让动态 import 的语法 chunk 落地
+  await page.waitForTimeout(2000)
+  const highlight = await page.evaluate(() => {
+    const colored = [...document.querySelectorAll('[data-slot="code-block-content"] span[style*="color"]')]
+    const vars = new Set()
+    for (const el of colored) {
+      const m = el.getAttribute('style')?.match(/var\((--tok-[a-z]+)\)/)
+      if (m) vars.add(m[1])
+    }
+    const perBlock = [...document.querySelectorAll('[data-slot="code-block-content"]')].map(
+      (pre) => pre.querySelectorAll('span[style*="color"]').length,
+    )
+    return {
+      tokens: colored.length,
+      vars: [...vars].sort(),
+      perBlock,
+      // 纯文本回退会渲染成没有 span 的裸文本
+      plainBlocks: perBlock.filter((n) => n === 0).length,
+      totalBlocks: perBlock.length,
+    }
+  })
+  record('代码片段已高亮成 token', highlight.tokens > 20, `${highlight.tokens} 个 token`)
+  record(
+    '高亮颜色取自 --tok-* 变量（深浅色自动跟随）',
+    highlight.vars.length >= 4,
+    highlight.vars.join(', '),
+  )
+  // 4 个片段里有 3 个带语言标签，第 4 个「任意客户端」故意不给语言 → 保持纯文本
+  record(
+    '无法识别语言的片段保持纯文本',
+    highlight.plainBlocks === 1 && highlight.totalBlocks === 4,
+    `${highlight.totalBlocks - highlight.plainBlocks}/4 个高亮，${highlight.plainBlocks} 个纯文本`,
+  )
+  const heavyOnConnect = allAssetRequests.filter((f) =>
+    /^(shell|python|javascript|typescript)-/.test(f),
+  )
+  record(
+    '接入页按需加载了语法 chunk',
+    heavyOnConnect.length >= 2,
+    heavyOnConnect.length ? heavyOnConnect.join(', ') : '（一个都没加载，说明懒加载坏了）',
+  )
 
   if (wantShots) {
     await page.screenshot({ path: resolve(SHOTS, 'connect-light.png'), fullPage: true })
