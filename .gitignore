@@ -39,3 +39,11 @@ panel/**/ModuleCache/
 
 # 开发者笔记（不进仓库）
 DEV_NOTES.md
+
+# ── 不参与运行的开发资料，不进仓库 ──
+tests/
+docs/
+panel/
+tools/clash_gemini_route.py
+可行性评估.md
+WorkBuddy-API-接口说明书.md

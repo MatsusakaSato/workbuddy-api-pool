@@ -1,9 +1,0 @@
-{
-  "captured_at": "pre-change baseline",
-  "policy": "old: candidates() sorts by -(credits), pick() returns first",
-  "simulated_requests": 200,
-  "live_credits_at_capture": {"330100178623": 1831, "330120998846": 2060, "330127845755": 2100},
-  "pick_distribution": {"330100178623": 0, "330120998846": 0, "330127845755": 200},
-  "concentration": 1.0,
-  "reading": "richest account absorbed 100% of traffic; other two idle until it is rate-limited or exhausted. This is the 薅羊毛 defect."
-}

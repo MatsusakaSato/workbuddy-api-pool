@@ -100,7 +100,7 @@ for chunk in r:
 echo 'GEMINI_API_KEY=AIza...' >> .env
 ```
 
-> Gemini 对出口 IP 的地区有要求。如果 Antigravity 能正常用、但网关报 `User location is not supported`，说明当前网络出口不被支持，需要挂一个支持地区的代理；仓库里附了写 Clash 规则的脚本 `tools/clash_gemini_route.py`。
+> Gemini 对出口 IP 的地区有要求。如果 Antigravity 能正常用、但网关报 `User location is not supported`，说明当前网络出口不被支持，需要挂一个支持地区的代理。
 
 ## 常见问题
 

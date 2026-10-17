@@ -31,5 +31,11 @@ case "${1:-}" in
     ;;
 esac
 
+if [ ! -f tools/read_creds.mjs ]; then
+  echo "缺少 tools/read_creds.mjs —— 它负责解密 WorkBuddy 的登录凭据，属于运行必需文件。" >&2
+  echo "请确认完整克隆/拷贝了整个项目目录（该文件随项目分发，位置固定为 tools/read_creds.mjs）。" >&2
+  exit 1
+fi
+
 echo "使用 Python: $PY"
 exec "$PY" -m gateway.server "$@"
