@@ -318,6 +318,201 @@ def iter_sse(resp) -> Iterator[bytes]:
         yield chunk
 
 
+# --------------------------------------------------------------------------
+# 积分余额：解析「基础套餐」与「平台奖励」两个桶
+#
+# ## 为什么必须分桶读（2026-10-17 实测）
+#
+# `get-user-resource` 的 `Data.Accounts[]` 里，**每个账号包一行**，用
+# `CapacityType` 区分种类：
+#
+#   CapacityType == 4  月度订阅套餐 —— 官方客户端文案「**套餐基础积分**」
+#   CapacityType == 1  一次性赠送包（拉新权益包 / 国内运营裂变包 / 签到奖励）
+#                      —— 官方客户端文案「**平台奖励积分**」
+#
+# 上游顺手给的 `Data.TotalDosage` **不是可花余额**：
+#   · 实测 330127845755 的 TotalDosage=2700，而逐行相加只有 2700 - (500-307.45)
+#     = 2507.45 —— 它把月度套餐的**池值**（CapacityRemain=500）算进去了。
+#   · 月度套餐的池值回答的是「这个套餐一共给了多少」，不是「这个周期还剩多少」。
+#     同一天实测 330100178623 返回 CapacityRemain=500 / CycleCapacityRemain=0
+#     ——「一点没用、全都还在」，而它本周期其实已经用光，上游正用 14018
+#     拒绝它的请求。按 TotalDosage 读余额，面板就会把一个耗尽的号显示成还有 2354。
+#
+# 所以：**余额一律逐行读周期家族 `CycleCapacityRemain`（`*Precise` 优先）**，
+# 两种套餐统一口径；完全没有周期字段的合成行才回退读池 `CapacityRemain`。
+# 这与 dsh-connect-workbuddy 4.4.5（issue #58）用官方客户端截图定下的口径一致：
+#   总剩余积分 2,196.61 = 套餐基础积分 500 + 平台奖励积分 1,696.61
+#
+# ## 两个桶各自的使用规则（决定了轮换为什么优先花基础积分）
+#
+#   · 基础套餐（月度周期）：**月底清零**。今天不用，明天也没了 —— 这是**沉没成本**，
+#     必须先花；而且消耗顺序上它不被保留，留着只是浪费。
+#   · 平台奖励（一次性包）：**各自有过期时间，但普遍很长**（实测 +13 ~ +31 天，
+#     而月度周期只有十几天）。用不完的零头可以留给下个月。
+#
+# 于是「优先使用基础套餐积分」= 在**同样的可用性**前提下，把请求优先派给
+# 基础积分还有剩、且奖励积分同样充足的号 —— 详见 rotation.py 第 3 层。
+# --------------------------------------------------------------------------
+
+#: 月度订阅套餐的 CapacityType。其余（实测只有 1）都是赠送/奖励包。
+CAPACITY_TYPE_BASE = 4
+
+#: 整包视为「完全不可用」的上游 Status 值（实测 3 = 已失效/已用尽）
+_CAPACITY_STATUS_DEAD = 3
+
+
+def package_rows(doc) -> List[dict]:
+    """从 `get-user-resource` 的完整响应里取出逐包明细 `Data.Accounts[]`。
+
+    与 `fetch_credits` 共用这条路径，测试因此可以喂**真实响应原文**，
+    而不必自己复刻一遍嵌套结构（复刻出来的夹具正是过去字段解析零覆盖的根源）。
+    """
+    try:
+        rows = doc["data"]["Response"]["Data"]["Accounts"]
+    except (KeyError, TypeError):
+        return []
+    return rows if isinstance(rows, list) else []
+
+
+def _num(raw, default: float = 0.0) -> float:
+    """容错数值解析：上游的精确值字段是**字符串**（"1318.14000014"）。"""
+    if raw is None or isinstance(raw, bool):
+        return default
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        return default
+    if val != val or val in (float("inf"), float("-inf")):  # NaN / ±Inf
+        return default
+    return val
+
+
+def _precise(row: dict, key: str) -> Optional[float]:
+    """读 `<key>Precise`（字符串，带小数）→ 回退 `key`（整数）。都没有返回 None。
+
+    **不能 `or` 串联**：精确值为 0 时 `or` 会继续去读池值，把「本周期 0」
+    读成「池 500」。必须按键是否存在判断。
+    """
+    for name in (key + "Precise", key):
+        if name in row and row[name] not in (None, ""):
+            return _num(row[name])
+    return None
+
+
+def _parse_ts(raw) -> Optional[float]:
+    """把上游时间字段转成 Unix 秒。支持毫秒时间戳与 "YYYY-MM-DD HH:MM:SS"。
+
+    上游同一个响应里两种格式混用：`CreateTime` 是毫秒整数，
+    `ExpiredTime` 是本地时间字符串（空串表示永不过期）。
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        val = float(raw)
+        return val / 1000.0 if val > 1e11 else val
+    if isinstance(raw, str) and raw.strip():
+        try:
+            return float(time.mktime(time.strptime(raw.strip()[:19], "%Y-%m-%d %H:%M:%S")))
+        except (ValueError, OverflowError):
+            return None
+    return None
+
+
+def _classify_package(row: dict, now: float) -> Optional[dict]:
+    """把一条 Accounts[] 行归类成 {kind, remain, size, expires_at}。
+
+    kind ∈ {"base", "reward"}；返回 None 表示这一行不贡献可用余额。
+    """
+    if not isinstance(row, dict):
+        return None
+    ctype = int(_num(row.get("CapacityType"), 0))
+    kind = "base" if ctype == CAPACITY_TYPE_BASE else "reward"
+
+    # 余额：周期家族优先（两种套餐统一），无周期字段的合成行回退池值。
+    if "CycleCapacityRemain" in row or "CycleCapacityRemainPrecise" in row:
+        remain = _precise(row, "CycleCapacityRemain") or 0.0
+    else:
+        remain = _precise(row, "CapacityRemain") or 0.0
+    size = _precise(row, "CycleCapacitySize")
+    if size is None:
+        size = _precise(row, "CapacitySize") or 0.0
+
+    status = int(_num(row.get("Status"), 0))
+    expired_ms = row.get("ExpiredTime")
+    expired = _parse_ts(expired_ms)
+    cycle_end = _parse_ts(row.get("CycleEndTime"))
+
+    # 失效包不计入任何桶（与插件的丢弃规则一致）。
+    if status == _CAPACITY_STATUS_DEAD:
+        return None
+    if expired is not None and expired <= now:
+        return None
+
+    # 基础套餐过期时间 = 本周期结束（它在周期结束后重置，不是"作废"）；
+    # 奖励包用各自的 ExpiredTime，缺失时退回周期结束。
+    expires_at = cycle_end if kind == "base" else (expired if expired is not None else cycle_end)
+
+    return {
+        "kind": kind,
+        "name": str(row.get("PackageName") or ""),
+        "remain": max(0.0, remain),
+        "size": max(0.0, size),
+        "expires_at": expires_at,
+    }
+
+
+def summarize_credits(rows: List[dict], total_dosage=None, now: Optional[float] = None) -> dict:
+    """把 `Data.Accounts[]` 汇总成两个桶 + 总余额。**纯函数，可离线单测。**
+
+    返回值（同时也是下发给前端 / 桌面面板的形状）:
+
+        {
+          "total_credits": float,        # 可花总余额 = 基础 + 奖励
+          "base_credits":  float,        # 基础套餐积分（月度周期，月底清零）
+          "reward_credits": float,       # 平台奖励积分（一次性赠送包）
+          "total_dosage":  float | None, # 上游 TotalDosage，**仅用于对账，不作为余额**
+          "base_refresh_at": float | None,     # 基础积分最近的一次刷新时刻（周期结束）
+          "reward_expiring_soon_at": float|None, # 奖励积分里最先过期的那批的过期时刻
+          "reward_expiring_soon": float,  # 24 小时内会过期的奖励积分
+          "packages": [{kind,name,remain,size,expires_at}],  # 明细，面板悬停用
+        }
+    """
+    now = time.time() if now is None else float(now)
+    pkgs: List[dict] = []
+    for row in rows or []:
+        item = _classify_package(row, now)
+        if item is not None:
+            pkgs.append(item)
+
+    base = sum(p["remain"] for p in pkgs if p["kind"] == "base")
+    reward = sum(p["remain"] for p in pkgs if p["kind"] == "reward")
+
+    base_refresh = [p["expires_at"] for p in pkgs
+                    if p["kind"] == "base" and p["expires_at"] is not None]
+    soon_cutoff = now + 24 * 3600
+    reward_exp = [p["expires_at"] for p in pkgs
+                  if p["kind"] == "reward" and p["expires_at"] is not None]
+    expiring_soon = sum(
+        p["remain"] for p in pkgs
+        if p["kind"] == "reward" and p["expires_at"] is not None and p["expires_at"] <= soon_cutoff
+    )
+
+    # 明细按"先用谁"排序：基础在前、到期早的在前 —— 前端悬停时直接按顺序读。
+    pkgs.sort(key=lambda p: (0 if p["kind"] == "base" else 1,
+                             p["expires_at"] if p["expires_at"] is not None else float("inf")))
+
+    return {
+        "total_credits": round(base + reward, 4),
+        "base_credits": round(base, 4),
+        "reward_credits": round(reward, 4),
+        "total_dosage": _num(total_dosage) if total_dosage is not None else None,
+        "base_refresh_at": min(base_refresh) if base_refresh else None,
+        "reward_expiring_soon": round(expiring_soon, 4),
+        "reward_expiring_soon_at": min(reward_exp) if reward_exp else None,
+        "packages": pkgs,
+    }
+
+
 def fetch_credits(cred: Credential) -> dict:
     url = cred.billing_base + "/v2/billing/meter/get-user-resource"
     req = urllib.request.Request(url, data=b"{}", headers=billing_headers(cred), method="POST")
@@ -333,9 +528,18 @@ def fetch_credits(cred: Credential) -> dict:
                             f"积分查询被拒 code={doc.get('code')}")
     try:
         data = doc["data"]["Response"]["Data"]
-        return {"total_credits": data.get("TotalDosage"), "total_count": data.get("TotalCount")}
     except Exception:  # noqa: BLE001
         return {"raw": doc.get("data")}
+
+    rows = package_rows(doc)
+    if not rows:
+        # 没有逐包明细时**不猜**：宁可使余额未知（面板显示 "—"），
+        # 也不回落到 TotalDosage —— 它把月度池值当成余额，正是这次要修的错。
+        return {"raw": doc.get("data"), "total_count": data.get("TotalCount")}
+
+    out = summarize_credits(rows, total_dosage=data.get("TotalDosage"))
+    out["total_count"] = data.get("TotalCount")
+    return out
 
 
 def checkin_status(cred: Credential) -> dict:
@@ -385,9 +589,9 @@ def claim_checkin(cred: Credential) -> dict:
             "streak_days": d.get("streak_days"), "raw": d}
 
 
-# 产品令牌决定返回哪个渠道的名单：CLI 通道 / 桌面通道
+# 产品令牌决定返回哪个渠道的名单：CLI 通道 / 桌面通道。
+# 国际版（桌面 UA `WorkBuddy/5.5.2`）已整体移除，这里只剩国内版需要的那一个。
 CLIENT_UA = "CLI/2.63.2 CodeBuddy/2.63.2"
-DESKTOP_UA = "WorkBuddy/5.5.2"
 
 CONFIG_PATH = "/v3/config"
 FALLBACK_CATALOG_PATH = "/v2/enterprises/personal/models"
@@ -401,7 +605,7 @@ def _catalog_headers(cred: Credential) -> Dict[str, str]:
         "X-Product": "SaaS",
         "X-Requested-With": "XMLHttpRequest",
         "Connection": "close",
-        "User-Agent": DESKTOP_UA if cred.region == "global" else CLIENT_UA,
+        "User-Agent": CLIENT_UA,
     }
     if cred.uid:
         h["X-User-Id"] = cred.uid
@@ -494,5 +698,6 @@ def _extract_models(data) -> List[dict]:
 __all__ = [
     "UpstreamError", "chat_headers", "billing_headers", "refresh_headers",
     "classify", "refresh_token", "open_chat_stream", "iter_sse",
-    "fetch_credits", "checkin_status", "claim_checkin", "fetch_models",
+    "fetch_credits", "summarize_credits", "package_rows", "CAPACITY_TYPE_BASE",
+    "checkin_status", "claim_checkin", "fetch_models",
 ]

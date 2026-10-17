@@ -4,7 +4,8 @@ Gemini 是**独立的一条上游**，与 WorkBuddy 账号池解耦。两种凭�
 
   ① `GEMINI_API_KEY`（AI Studio 官方 key）—— 走 generativelanguage.googleapis.com
   ② 本机 Antigravity 客户端的登录凭据 —— 走 daily-cloudcode-pa.googleapis.com（免费档）
-     详见 antigravity.py。两条都没有时，路由会退回 WorkBuddy 国际版账号。
+     详见 antigravity.py。两条都没有时，请求直接返回 `gemini_not_configured`
+     （网关只做国内版 WorkBuddy，已经没有国际版账号可以兜底）。
 
 历史上 ② 曾被判定不可用（403 SUBSCRIPTION_REQUIRED / UNSUPPORTED_CLIENT）。**该结论已作废**：
 打开 Antigravity 客户端完成 provisioning 后，免费档即为 currentTier，可正常生成内容。

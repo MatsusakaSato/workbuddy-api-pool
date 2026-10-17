@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import threading
 import time
@@ -29,7 +30,58 @@ log = logging.getLogger("gateway.activity")
 MAX_RECORDS = 200
 RETENTION_DAYS = 90
 
-__all__ = ["Activity", "ACTIVITY", "MAX_RECORDS", "RETENTION_DAYS", "mark_test"]
+"""
+延迟直方图：桶边界（毫秒）。
+
+为什么要存直方图而不是只存 sum/max：面板要用**分布条**展示延迟，
+需要 p50/p90/p99。而 p99 无法从"总和 + 最大值"反推 —— 必须有分布信息。
+又因为聚合是**落盘累积**的（重启不丢），不能存原始样本（会无限增长），
+所以存一个定长直方图：18 个桶，按毫秒量级近似对数分布。
+
+桶边界的取法：1s 以下切得细（推理首字延迟集中在这里），
+1s 以上按"秒级"切到 60s，再往上按分钟级粗切。
+理由是运维判断只需要区分"常态 / 偏慢 / 事故"三档，
+而 120s 与 900s 之间如果只有一个桶，一个 143s 的卡顿会被报成 900s —— 明显失真。
+
+末桶 1800s（30 分钟）之后单独一桶收溢出值，保证不丢计数。
+"""
+LATENCY_BUCKETS = (100, 200, 400, 700, 1000, 1500, 2000, 3000, 4000, 6000,
+                   8000, 10000, 15000, 20000, 30000, 45000, 60000,
+                   90000, 120000, 180000, 300000, 600000, 1800000)
+BUCKET_COUNT = len(LATENCY_BUCKETS) + 1   # 最后一桶收 >900s 的溢出值
+
+__all__ = ["Activity", "ACTIVITY", "MAX_RECORDS", "RETENTION_DAYS", "mark_test",
+           "LATENCY_BUCKETS", "BUCKET_COUNT", "histogram_percentile"]
+
+
+def _bucket_index(ms: int) -> int:
+    """毫秒 → 桶下标。线性扫 18 个桶足够快，且避免二分带来的边界歧义。"""
+    for i, edge in enumerate(LATENCY_BUCKETS):
+        if ms <= edge:
+            return i
+    return BUCKET_COUNT - 1
+
+
+def histogram_percentile(hist: List[int], q: float) -> int:
+    """从直方图估算分位数，返回该桶的**上界**（保守：宁可报大不报小）。
+
+    hist 为定长列表；q 取 0.5 / 0.9 / 0.99。空直方图返回 0。
+    """
+    total = sum(hist)
+    if total <= 0:
+        return 0
+    # 目标排名（1-based）。用 ceil 让 q=0.5 且 n=2 时取到第 1 个，符合直觉。
+    rank = max(1, math.ceil(q * total))
+    seen = 0
+    for i, count in enumerate(hist):
+        seen += count
+        if seen >= rank:
+            # 返回桶上界。溢出桶没有上界，用最大边界的 2 倍兜底。
+            if i >= len(LATENCY_BUCKETS):
+                return LATENCY_BUCKETS[-1] * 2
+            return LATENCY_BUCKETS[i]
+    return LATENCY_BUCKETS[-1] * 2
+
 
 # 回归测试会真的打网关（harness 套件约 13 次真实请求，还有一次故意用不存在的模型）。
 # 这些流量如果混进用量统计，失败率会被凭空拉高、「本月消耗」也不再是你真实用掉的。
@@ -48,6 +100,23 @@ def _is_test() -> bool:
 
 def _day_of(ts: float) -> str:
     return time.strftime("%Y-%m-%d", time.localtime(ts))
+
+
+def _daily_cell(cell: object) -> Dict[str, int]:
+    """把 _daily 里的一格归一成 {"requests", "tokens"}。
+
+    存在的意义是**向后兼容**：升级前落盘的 _daily 值（如果曾被序列化）是裸 int，
+    只表示请求数。这里统一吸收两种形状，避免读旧数据时抛异常。
+    未知形状一律当 0 处理而不是崩溃 —— 聚合数据坏一格不该让整个面板打不开。
+    """
+    if isinstance(cell, dict):
+        return {
+            "requests": int(cell.get("requests") or 0),
+            "tokens": int(cell.get("tokens") or 0),
+        }
+    if isinstance(cell, (int, float)) and not isinstance(cell, bool):
+        return {"requests": int(cell), "tokens": 0}
+    return {"requests": 0, "tokens": 0}
 
 
 def _default_path() -> Optional[Path]:
@@ -71,6 +140,10 @@ class Activity:
         self._by_day: Dict[str, Dict] = {}
         self._by_model: Dict[str, Dict] = {}
         self._by_account: Dict[str, Dict] = {}
+        # 行内趋势线需要「某模型 / 某账号在每一天」的请求数。
+        # 存成 {(维度, 名称): {日期: 次数}}，键是字符串以便直接落盘进 JSON。
+        # 只存请求数：趋势线表达的是"在变多还是变少"，不需要完整聚合。
+        self._daily: Dict[str, Dict[str, int]] = {}
         self._write_failed = False
         self._loaded_records = 0
         self._first_at: Optional[float] = None
@@ -104,9 +177,18 @@ class Activity:
         except OSError as exc:
             log.warning("用量记录读取失败：%s", exc)
             return
+        max_seq = 0
         for rec in kept:
+            # 记录历史最大序号。seq 在内存里自增、不落盘，若不在载入时恢复，
+            # 重启后新记录会从 1 重新开始，和文件里已有记录的 seq 撞车。
+            # 前端拿 seq 当列表 key，撞车会导致 React 复用/丢弃节点
+            # （症状：请求日志明明有 200 条，只渲染出十几行）。
+            s = rec.get("seq")
+            if isinstance(s, int) and s > max_seq:
+                max_seq = s
             self._apply(rec)
             self._items.append(self._view(rec))
+        self._seq = max_seq
         self._loaded_records = len(kept)
         if dropped:
             self._rewrite(kept)
@@ -148,7 +230,9 @@ class Activity:
     @staticmethod
     def _blank() -> Dict:
         return {"requests": 0, "errors": 0, "credits": 0.0, "tokens": 0,
-                "latency_sum": 0, "latency_max": 0}
+                "latency_sum": 0, "latency_max": 0,
+                # 定长延迟直方图，用于估算 p50/p90/p99（见 LATENCY_BUCKETS 的说明）
+                "latency_hist": [0] * BUCKET_COUNT}
 
     @staticmethod
     def _bump(bucket: Dict, rec: Dict) -> None:
@@ -161,6 +245,12 @@ class Activity:
         bucket["latency_sum"] += ms
         if ms > bucket["latency_max"]:
             bucket["latency_max"] = ms
+        # 旧记录（本次升级前落盘的）可能没有 hist 键 —— 补上再累加，不让老数据崩
+        hist = bucket.get("latency_hist")
+        if not isinstance(hist, list) or len(hist) != BUCKET_COUNT:
+            hist = [0] * BUCKET_COUNT
+            bucket["latency_hist"] = hist
+        hist[_bucket_index(ms)] += 1
 
     def _apply(self, rec: Dict) -> None:
         ts = rec["ts"]
@@ -182,6 +272,25 @@ class Activity:
             if bucket is None:
                 bucket = table[key] = self._blank()
             self._bump(bucket, rec)
+
+        # 行内趋势线 + 每日 hover 明细用：记录 (维度:名称) 在当天的请求数与 tokens。
+        # 这里**故意不受 test 流量影响** —— 测试流量在上面已经 return 掉了，
+        # 所以趋势线画的是真实用量，与表格里的 totals 口径一致。
+        #
+        # 值用 dict 而不是裸 int：既要请求数又要 tokens。旧记录（升级前落盘的）
+        # 是裸 int，_daily 的读取处统一用 _daily_slot() 兼容，不会因为版本差异炸掉。
+        day = _day_of(ts)
+        tokens = int(rec.get("tokens") or 0)
+        for dim, name in (("model", rec.get("model") or "—"),
+                          ("account", rec.get("account") or "—")):
+            slot = self._daily.setdefault(f"{dim}\t{name}", {})
+            cell = slot.get(day)
+            if not isinstance(cell, dict):
+                # 旧格式（裸 int = 请求数）就地升级，保留原有计数
+                cell = {"requests": int(cell or 0), "tokens": 0}
+                slot[day] = cell
+            cell["requests"] += 1
+            cell["tokens"] += tokens
 
     @staticmethod
     def _view(rec: Dict) -> Dict:
@@ -260,11 +369,19 @@ class Activity:
             out["tokens"] += b["tokens"]
             out["latency_sum"] += b["latency_sum"]
             out["latency_max"] = max(out["latency_max"], b["latency_max"])
+            # 直方图逐桶相加；缺键的旧桶当全 0 处理
+            hist = b.get("latency_hist")
+            if isinstance(hist, list) and len(hist) == BUCKET_COUNT:
+                for i, count in enumerate(hist):
+                    out["latency_hist"][i] += count
         return out
 
     @staticmethod
     def _shape(b: Dict) -> Dict:
         n = b["requests"] or 0
+        hist = b.get("latency_hist")
+        if not isinstance(hist, list) or len(hist) != BUCKET_COUNT:
+            hist = [0] * BUCKET_COUNT
         return {
             "requests": n,
             "errors": b["errors"],
@@ -273,6 +390,11 @@ class Activity:
             "tokens": b["tokens"],
             "avg_ms": round(b["latency_sum"] / n) if n else 0,
             "max_ms": b["latency_max"],
+            # 面板的分布条用这三个值画形状。注意它们是**桶上界**的保守估计，
+            # 不是精确分位点 —— 直方图精度决定，够用来判断"是常态还是事故"。
+            "p50_ms": histogram_percentile(hist, 0.50),
+            "p90_ms": histogram_percentile(hist, 0.90),
+            "p99_ms": histogram_percentile(hist, 0.99),
         }
 
     def usage(self, days: int = 30) -> Dict:
@@ -285,6 +407,7 @@ class Activity:
             by_day = {k: dict(v) for k, v in self._by_day.items()}
             by_model = {k: dict(v) for k, v in self._by_model.items()}
             by_account = {k: dict(v) for k, v in self._by_account.items()}
+            daily = {k: dict(v) for k, v in self._daily.items()}
             first_at, last_at = self._first_at, self._last_at
             totals_all = {"requests": self.total_requests,
                           "errors": self.total_errors,
@@ -294,18 +417,40 @@ class Activity:
         today = _day_of(time.time())
         days = max(1, min(int(days or 30), RETENTION_DAYS))
 
+        # 逐日「按模型」拆分。柱/折线图的 hover 要回答"这天是谁在跑、耗了多少 token"，
+        # 而 totals 只给了当天的总数。直接从 _daily 反推，不新增存储：
+        # _daily 的键是 "model\t<名称>"，值是该模型逐日的 {"requests", "tokens"}。
+        model_daily: Dict[str, Dict[str, Dict[str, int]]] = {}
+        for key, slot in daily.items():
+            dim, _, name = key.partition("\t")
+            if dim != "model":
+                continue
+            for d, cell in slot.items():
+                model_daily.setdefault(d, {})[name] = _daily_cell(cell)
+
         # 连续日期序列，缺的补 0 —— 否则柱状图会把没有请求的日子跳过，趋势是假的
         series: List[Dict] = []
         now = time.time()
         for i in range(days - 1, -1, -1):
             d = _day_of(now - i * 86400)
             b = by_day.get(d) or self._blank()
+            per_model = model_daily.get(d) or {}
             series.append({
                 "date": d,
                 "requests": b["requests"],
                 "errors": b["errors"],
                 "credits": round(b["credits"], 4),
                 "tokens": b["tokens"],
+                # 按 tokens 降序 —— hover 面板里用户最关心"谁吃掉了最多 token"，
+                # 而请求数排序会让一个高频但极短的小模型排在大模型前面，误导判断。
+                # 前端直接顺序渲染即可，不必再排一次。不含零值项。
+                "models": [
+                    {"model": name, "requests": cell["requests"], "tokens": cell["tokens"]}
+                    for name, cell in sorted(
+                        per_model.items(), key=lambda kv: (-kv[1]["tokens"], -kv[1]["requests"], kv[0])
+                    )
+                    if cell["requests"] > 0
+                ],
             })
 
         def window(n: int) -> Dict:
@@ -314,7 +459,10 @@ class Activity:
 
         by_day_all = list(by_day.values())
         totals = {
+            # 「今天」与 days=1 是同一个口径：只看当天的自然日。
+            # 保留 today 这个旧键，客户端/脚本可能已在用。
             "today": self._shape(by_day.get(today) or self._blank()),
+            "d1": window(1),
             "d7": window(7),
             "d30": window(30),
             "all": self._shape(self._fold(by_day_all)),
@@ -323,11 +471,16 @@ class Activity:
         totals["all"]["errors"] = totals_all["errors"]
         totals["all"]["credits"] = totals_all["credits"]
 
-        def table(src: Dict[str, Dict], key: str) -> List[Dict]:
+        def table(src: Dict[str, Dict], key: str, dim: str) -> List[Dict]:
             rows = []
             for name, b in src.items():
                 row = self._shape(b)
                 row[key] = name
+                # 行内趋势线：该实体在这段窗口内的逐日请求数，与 days 等长且对齐。
+                # 对齐很重要 —— 前端直接把两个数组配对画图，不做日期匹配。
+                # 用 _daily_cell 归一，兼容升级前的裸 int 形状。
+                slot = daily.get(f"{dim}\t{name}") or {}
+                row["daily"] = [_daily_cell(slot.get(s["date"], 0))["requests"] for s in series]
                 rows.append(row)
             rows.sort(key=lambda r: (-r["credits"], -r["requests"]))
             return rows
@@ -343,8 +496,8 @@ class Activity:
             "last_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(last_at)) if last_at else None,
             "totals": totals,
             "days": series,
-            "models": table(by_model, "model"),
-            "accounts": table(by_account, "account"),
+            "models": table(by_model, "model", "model"),
+            "accounts": table(by_account, "account", "account"),
         }
 
 
