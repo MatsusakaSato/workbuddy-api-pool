@@ -33,11 +33,24 @@ const TONE_ICON: Partial<Record<AccountTone, LucideIcon>> = {
   warning: AlertTriangle,
 }
 
-/** 只有异常语气才着色；常态留灰，让颜色保持"有事"的信号价值 */
+/**
+ * 只有异常语气才用状态色。常态用**品牌蓝**（`primary-subtle` / `primary`），
+ * 不再留灰 —— 彩色版里，空状态是页面上少见的"大面积留白"，
+ * 用一块品牌蓝图标底能让空页面也显得是"设计过的"。
+ *
+ * ⚠️ 这里和"颜色只表示状态"的纪律有一个明确的边界：
+ * 蓝在这里表示**品牌/中性**，不表示"出事了"。真正表达异常的仍是 danger/warning，
+ * 而且是同一族色系之外的红与橙，语义不会混。
+ * （注意 primary 与 info 是同一个蓝：这在本项目里是有意的复用，
+ *   info 语义只出现在 request-log 的「流式」标记上，两处不会同屏互相干扰。）
+ */
 const TONE_CLASS: Partial<Record<AccountTone, string>> = {
   danger: 'bg-danger-subtle text-danger',
   warning: 'bg-warning-subtle text-warning',
 }
+
+/** 常态（idle / 未指定）的图标底：品牌蓝 */
+const IDLE_CLASS = 'bg-primary-subtle text-primary'
 
 export function EmptyState({
   title,
@@ -56,7 +69,7 @@ export function EmptyState({
   className?: string
 }) {
   const Icon = icon ?? TONE_ICON[tone] ?? Inbox
-  const iconClass = TONE_CLASS[tone] ?? 'bg-muted text-muted-foreground'
+  const iconClass = TONE_CLASS[tone] ?? IDLE_CLASS
 
   return (
     <Empty className={cn('py-10', className)}>

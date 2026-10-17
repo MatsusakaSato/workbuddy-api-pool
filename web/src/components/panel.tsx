@@ -35,7 +35,13 @@ export function Panel({
         <header className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3">
           <div className="min-w-0 flex-1">
             {title ? (
-              <h2 className="truncate text-sm font-semibold tracking-tight">{title}</h2>
+              /* 标题前的品牌色小竖条。面积很小（2px 宽），
+                 但让每个面板都有一个统一的、带颜色的视觉起点，
+                 整页因此不会是一堆"一模一样的灰框"。 */
+              <h2 className="flex items-center gap-2 truncate text-sm font-semibold tracking-tight">
+                <span aria-hidden className="h-3 w-0.5 shrink-0 rounded-full bg-primary" />
+                <span className="truncate">{title}</span>
+              </h2>
             ) : null}
             {description ? (
               <p className="mt-0.5 text-2xs text-muted-foreground">{description}</p>

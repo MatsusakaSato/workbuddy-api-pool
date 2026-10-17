@@ -195,30 +195,45 @@ export function useSelftest() {
 }
 
 /**
- * 领取签到。
+ * 立即签到（全自动签到的兜底按钮）。
  *
- * 半自动设计：一定要显式传 account_ids，服务端会拒绝空请求。
- * 这是有意的安全约束（避免误点就领掉全部账号），UI 上必须让用户先勾选再确认。
+ * ★ 2026-10-16 变更：签到已改为**服务端全自动**（gateway/checkin.py 定时领取），
+ * 前端不再有勾选 + 二次确认的表单。这个 mutation 只服务于「立即签到」按钮 ——
+ * 它的语义是"别等下一轮，现在就跑一遍"。
+ *
+ * 服务端走的是与自动调度**同一条**路径（先查状态、只领今天没领的），
+ * 所以结果里会出现三种情况，提示必须分开说，不能混成一句"N 个成功"：
+ *  · claimed        —— 这次真的领到了
+ *  · already(_local) —— 今天本来就领过（不是"又领了一份"）
+ *  · 其它           —— 失败或活动未开始
  */
 export function useClaimCheckin() {
   const qc = useQueryClient()
-  return useMutation<ClaimResponse, Error, string[]>({
-    mutationFn: api.claimCheckin,
+  return useMutation<ClaimResponse, Error, void>({
+    mutationFn: api.claimCheckinAll,
     onSuccess: (data) => {
-      const ok = data.results.filter((r) => r.ok).length
-      const failed = data.results.length - ok
-      if (ok > 0) {
-        toast.success(`已领取 ${ok} 个账号`, {
-          description: failed > 0 ? `${failed} 个未成功` : undefined,
+      const claimed = data.results.filter((r) => r.action === 'claimed')
+      const already = data.results.filter(
+        (r) => r.action === 'already' || r.action === 'already_local',
+      )
+      const failed = data.results.filter((r) => !r.ok)
+      if (claimed.length > 0) {
+        toast.success(`已签到 ${claimed.length} 个账号`, {
+          description: already.length > 0 ? `另有 ${already.length} 个今天已经领过` : undefined,
+        })
+      } else if (failed.length > 0) {
+        toast.warning('这次没有签到成功', {
+          description: data.results.map((r) => r.reason).filter(Boolean).join('；') || undefined,
         })
       } else {
-        toast.warning('没有账号领取成功', {
-          description: data.results.map((r) => r.reason).filter(Boolean).join('；') || undefined,
+        toast.success('今天都已经领过了', {
+          description: `共 ${already.length} 个账号`,
         })
       }
       void qc.invalidateQueries({ queryKey: queryKeys.checkin })
       void qc.invalidateQueries({ queryKey: queryKeys.status })
+      void qc.invalidateQueries({ queryKey: ['usage'] })
     },
-    onError: (error) => toast.error('领取失败', { description: error.message }),
+    onError: (error) => toast.error('签到失败', { description: error.message }),
   })
 }

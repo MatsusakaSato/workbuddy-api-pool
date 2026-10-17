@@ -9,16 +9,13 @@
  * 转换成 #/<name>，所以老书签不会失效。
  */
 
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query'
-import { HashRouter, Navigate, Outlet, Route, Routes } from 'react-router'
+import { HashRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from '@/components/ui/sonner'
-import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { Skeleton } from '@/components/ui/skeleton'
-import { AppSidebar } from '@/components/app-sidebar'
 import { AppTopbar } from '@/components/app-topbar'
-import { CommandPalette } from '@/components/command-palette'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { KeyGate } from '@/components/key-gate'
 import { ApiError } from '@/lib/api'
@@ -28,16 +25,20 @@ import { useHealth, useStatus } from '@/hooks/use-gateway'
 /**
  * 路由级代码分割。
  *
- * 主要是为了 recharts：它一家约 400 kB（未压缩），而只有「用量」页用它。
- * 不拆的话，打开概览页也要先下载这 400 kB —— 对一个本地工具是没必要的浪费。
- * 拆完之后首屏只加载外壳 + 概览，图表在真正切到用量页时才拉。
- * （实测：拆分前单包 944 kB，拆分后首屏约 365 kB。）
+ * 2026-10-16 更新：原本拆分的动机是 recharts（一家约 400 kB，未压缩）。
+ * 用量页的柱状图现已换成自绘的（见 components/viz.tsx），recharts 不再被任何页面引用。
+ *
+ * 同日第二次变更：**「用量」页并入「概览」**（见 routes/overview.tsx）。
+ * 用量区块与概览同属首屏，拆 chunk 已经没有意义 —— 它反而会多一次往返。
+ * 于是 UsagePage 的懒加载被删掉，用量相关组件直接进首屏 chunk。
+ *
+ * 拆分本身仍然保留：懒加载让「接入」页的 shiki 语法高亮
+ * （含 python/shell/js 多套语法定义）不会压进首屏。
  */
 const OverviewPage = lazy(() =>
   import('@/routes/overview').then((m) => ({ default: m.OverviewPage })),
 )
 const ModelsPage = lazy(() => import('@/routes/models').then((m) => ({ default: m.ModelsPage })))
-const UsagePage = lazy(() => import('@/routes/usage').then((m) => ({ default: m.UsagePage })))
 const ConnectPage = lazy(() =>
   import('@/routes/connect').then((m) => ({ default: m.ConnectPage })),
 )
@@ -96,40 +97,39 @@ function KeyGuard({ children }: { children: React.ReactNode }) {
 /* 布局                                                                */
 /* ------------------------------------------------------------------ */
 
+/**
+ * 布局：顶栏 + 内容区。
+ *
+ * 侧栏已移除 —— 导航只有 3 项，撑不起一整列；横排进顶栏后
+ * 内容区每屏多出 15rem，「模型」这类网格页受益最明显。
+ * ⌘K 命令面板随搜索功能一并下线。
+ */
 function Layout() {
-  const [commandOpen, setCommandOpen] = useState(false)
-
-  // ⌘K / Ctrl+K 打开命令面板。与 sidebar 自己的 ⌘B 折叠快捷键并存。
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key.toLowerCase() !== 'k' || !(event.metaKey || event.ctrlKey)) return
-      // 不要抢掉输入框里的正常快捷键（比如 textarea 里的粘贴）
-      event.preventDefault()
-      setCommandOpen((open) => !open)
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [])
-
   return (
-    <SidebarProvider
-      // 16rem 对密集控制台偏宽，收到 15rem
-      style={{ '--sidebar-width': '15rem' } as React.CSSProperties}
-    >
-      <AppSidebar />
-      <SidebarInset className="min-w-0">
-        <AppTopbar onOpenCommand={() => setCommandOpen(true)} />
-        <div className="min-w-0 flex-1">
-          <ErrorBoundary>
-            <Suspense fallback={<RouteFallback />}>
-              <Outlet />
-            </Suspense>
-          </ErrorBoundary>
-        </div>
-      </SidebarInset>
-      <CommandPalette open={commandOpen} onOpenChange={setCommandOpen} />
-    </SidebarProvider>
+    <div className="flex h-svh min-h-0 flex-col">
+      <AppTopbar />
+      <main className="min-h-0 flex-1 overflow-y-auto">
+        <ErrorBoundary>
+          <Suspense fallback={<RouteFallback />}>
+            <Outlet />
+          </Suspense>
+        </ErrorBoundary>
+      </main>
+    </div>
   )
+}
+
+/**
+ * 旧的 `#/usage` 深链 → 概览。
+ *
+ * 「用量」已并入概览（2026-10-16），但这个地址可能已经进了书签、也可能被文档引用，
+ * 所以保留一条重定向而不是让它掉进"未知路径"。
+ * **必须把 query 带过去**：`#/usage?w=d90` 里的窗口选择应当继续生效 ——
+ * 丢掉它意味着用户的历史书签会静默换回默认窗口。
+ */
+function UsageRedirect() {
+  const { search } = useLocation()
+  return <Navigate to={{ pathname: '/overview', search }} replace />
 }
 
 /** key 变化后需要把缓存整个丢掉 —— 否则旧 key 拿到的数据会留在界面上 */
@@ -157,7 +157,8 @@ export function App() {
                 <Route index element={<Navigate to="/overview" replace />} />
                 <Route path="/overview" element={<OverviewPage />} />
                 <Route path="/models" element={<ModelsPage />} />
-                <Route path="/usage" element={<UsagePage />} />
+                {/* 旧地址，见 UsageRedirect 的说明 */}
+                <Route path="/usage" element={<UsageRedirect />} />
                 <Route path="/connect" element={<ConnectPage />} />
                 {/* 未知路径回概览，不显示 404 —— 本地工具不需要这一层 */}
                 <Route path="*" element={<Navigate to="/overview" replace />} />

@@ -1,10 +1,14 @@
 /**
- * 模型目录页。
+ * 模型目录页 —— 密集卡片矩阵。
  *
- * 51 个模型如果用"一个大平表"呈现，找东西基本靠翻。所以三件事一起做：
- *   分面（全部/免费/国内/国际，带计数）→ 排序（家族/倍率/上下文）→ 搜索
- * 默认按**家族分组**：同一家族的 flash/pro/mini 版本挨在一起才方便比价，
- * 按字母序会把它们打散到表格各处。
+ * 布局演进的教训：51 个模型按 modelFamily 分组会产生 41 个家族，
+ * 其中 33 个家族只有 1 个模型 —— "家族标题 + 孤卡"竖着排，
+ * 每行右边 3/4 全是空的，看起来比表格还宽松。
+ *
+ * 所以这版用**一张连续密集网格**（网关只剩国内版一个上游，没有分区可言）：
+ *   · 卡片 auto-fill 自适应 3-5 列，横向永远铺满，不留大空白；
+ *   · 家族信息降级为卡片上的小徽标，排序为"按家族"时同家族的卡自然相邻；
+ *   · 每张卡两行：ID（可复制）+ 倍率徽标，下面 名称 / 家族 / 参数条。
  *
  * 视图状态全部放在 URL hash 里（`#/models?q=…&facet=…&sort=…`）：
  *  · 旧面板的 `?tab=models&facet=free` 深链能翻译过来（见 legacy-deeplink）；
@@ -12,16 +16,13 @@
  *  · 想把这批筛选结果发给别人/存书签，直接复制地址栏即可。
  */
 
-import { Fragment, useMemo } from 'react'
+import { useMemo } from 'react'
 import { useSearchParams } from 'react-router'
-import { Search, X } from 'lucide-react'
 import { Page } from '@/components/page'
 import { Panel } from '@/components/panel'
 import { EmptyState } from '@/components/empty-state'
 import { ClickToCopy } from '@/components/copy-button'
-import { StatusLabel } from '@/components/status-dot'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Select,
@@ -30,28 +31,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { StatusLabel } from '@/components/status-dot'
 import { useModels } from '@/hooks/use-gateway'
 import {
   formatCreditMultiplier,
   formatInt,
   formatTokens,
   modelFamily,
-  regionLabel,
 } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import type { ModelEntry } from '@/lib/types'
 
-type FacetKey = 'all' | 'free' | 'cn' | 'global'
+type FacetKey = 'all' | 'free'
 type SortKey = 'family' | 'cost' | 'ctx' | 'name'
 
 const FACETS: { key: FacetKey; label: string }[] = [
   { key: 'all', label: '全部' },
   { key: 'free', label: '免费' },
-  { key: 'cn', label: '国内' },
-  { key: 'global', label: '国际' },
 ]
+
+const FACET_KEYS = FACETS.map((f) => f.key)
 
 const SORTS: { key: SortKey; label: string }[] = [
   { key: 'family', label: '按家族' },
@@ -60,13 +60,9 @@ const SORTS: { key: SortKey; label: string }[] = [
   { key: 'name', label: '按名称' },
 ]
 
-const HEAD = 'h-8 px-3 text-2xs font-medium text-muted-foreground whitespace-nowrap'
-const CELL = 'h-8 px-3 py-0 align-middle'
-
 function matches(model: ModelEntry, facet: FacetKey): boolean {
   if (facet === 'all') return true
-  if (facet === 'free') return model.cost === 0
-  return model.region === facet
+  return model.cost === 0
 }
 
 function compare(a: ModelEntry, b: ModelEntry, sort: SortKey): number {
@@ -93,17 +89,17 @@ function compare(a: ModelEntry, b: ModelEntry, sort: SortKey): number {
 }
 
 /**
- * 倍率单元格。三种情况必须分开，混了就是误导：
+ * 倍率徽标。三种情况必须分开，混了就是误导：
  *   null  → "—" + 说明（上游目录没提供，**不代表免费**）
  *   0     → "免费"（用状态色点出来，这是真的不要积分）
- *   > 0   → 等宽数字，"x0.05"，纵向可比
+ *   > 0   → 等宽数字，"x0.05"，横向可比
  */
-function CostCell({ model }: { model: ModelEntry }) {
+function CostBadge({ model }: { model: ModelEntry }) {
   if (model.cost === null) {
     return (
       <Tooltip>
         <TooltipTrigger asChild>
-          <span className="tnum cursor-default text-xs text-muted-foreground">—</span>
+          <span className="tnum cursor-default text-2xs text-muted-foreground/70">倍率 —</span>
         </TooltipTrigger>
         <TooltipContent className="max-w-xs">
           上游目录没有提供该模型的倍率（图像类模型常见），
@@ -113,37 +109,43 @@ function CostCell({ model }: { model: ModelEntry }) {
     )
   }
   if (model.cost === 0) return <StatusLabel tone="success">免费</StatusLabel>
-  return <span className="tnum text-xs">{formatCreditMultiplier(model.credits)}</span>
+  return (
+    <span className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-2xs text-muted-foreground">
+      {formatCreditMultiplier(model.credits)}
+    </span>
+  )
 }
 
-function ModelRow({ model }: { model: ModelEntry }) {
+function ModelCard({ model }: { model: ModelEntry }) {
   return (
-    <TableRow className="group">
-      <TableCell className={cn(CELL, 'max-w-[16rem]')}>
+    <div className="group flex min-w-0 flex-col gap-1 rounded-md bg-muted/30 p-2.5 shadow-border-subtle transition-colors hover:bg-muted/50">
+      {/* 第一行：ID（可复制）+ 倍率徽标 */}
+      <div className="flex items-center justify-between gap-2">
         <ClickToCopy
           value={model.id}
           label={`复制模型 ID ${model.id}`}
-          className="font-mono text-2xs text-foreground"
+          className="min-w-0 truncate font-mono text-2xs text-foreground"
         />
-      </TableCell>
-      <TableCell className={cn(CELL, 'max-w-[14rem]')}>
-        <span className="block truncate text-xs">{model.name}</span>
-      </TableCell>
-      <TableCell className={cn(CELL, 'whitespace-nowrap')}>
-        <span className="text-2xs text-muted-foreground">{regionLabel(model.region)}</span>
-      </TableCell>
-      <TableCell className={cn(CELL, 'text-right')}>
-        <span className="tnum text-xs" title={`${formatInt(model.context_window)} tokens`}>
-          {formatTokens(model.context_window)}
+        <CostBadge model={model} />
+      </div>
+
+      {/* 第二行：名称（和 ID 几乎一样时省掉） */}
+      <div className="flex items-center gap-1.5 text-2xs text-muted-foreground">
+        {model.name && model.name.toLowerCase() !== model.id.toLowerCase() ? (
+          <span className="min-w-0 truncate text-foreground/90">{model.name}</span>
+        ) : null}
+      </div>
+
+      {/* 第三行：参数条 —— 等宽数字，点和值分层 */}
+      <div className="flex items-center gap-x-2.5 text-2xs text-muted-foreground">
+        <span className="tnum" title={`上下文 ${formatInt(model.context_window)} tokens`}>
+          上下文 <b className="font-medium text-foreground/80">{formatTokens(model.context_window)}</b>
         </span>
-      </TableCell>
-      <TableCell className={cn(CELL, 'text-right')}>
-        <span className="tnum text-xs text-muted-foreground">{formatTokens(model.max_tokens)}</span>
-      </TableCell>
-      <TableCell className={cn(CELL, 'text-right')}>
-        <CostCell model={model} />
-      </TableCell>
-    </TableRow>
+        <span className="tnum" title={`最大输出 ${formatInt(model.max_tokens)} tokens`}>
+          输出 <b className="font-medium text-foreground/80">{formatTokens(model.max_tokens)}</b>
+        </span>
+      </div>
+    </div>
   )
 }
 
@@ -152,7 +154,12 @@ export function ModelsPage() {
   const models = useModels()
 
   const q = params.get('q') ?? ''
-  const facet = (params.get('facet') as FacetKey | null) ?? 'all'
+  // 旧书签里可能带着已废弃的 facet=cn / facet=global，一律退回「全部」
+  const rawFacet = params.get('facet')
+  const facet: FacetKey =
+    rawFacet && (FACET_KEYS as readonly string[]).includes(rawFacet)
+      ? (rawFacet as FacetKey)
+      : 'all'
   const sort = (params.get('sort') as SortKey | null) ?? 'family'
 
   const all = models.data?.data ?? []
@@ -171,8 +178,6 @@ export function ModelsPage() {
     () => ({
       all: all.length,
       free: all.filter((m) => m.cost === 0).length,
-      cn: all.filter((m) => m.region === 'cn').length,
-      global: all.filter((m) => m.region === 'global').length,
     }),
     [all],
   )
@@ -187,29 +192,11 @@ export function ModelsPage() {
       .sort((a, b) => compare(a, b, sort))
   }, [all, facet, q, sort])
 
-  /** 只有按家族排序时才插入分组标题行 */
-  const groups = useMemo(() => {
-    if (sort !== 'family') return null
-    const out: { family: string; items: ModelEntry[] }[] = []
-    for (const model of rows) {
-      const family = modelFamily(model.id)
-      const last = out[out.length - 1]
-      if (last && last.family === family) last.items.push(model)
-      else out.push({ family, items: [model] })
-    }
-    return out
-  }, [rows, sort])
-
   const isLoading = models.isLoading && !models.data
 
   return (
     <Page
       title="模型"
-      description={
-        all.length > 0
-          ? `网关共暴露 ${all.length} 个模型，其中 ${counts.free} 个免费。倍率即积分系数，按上游目录实时同步。`
-          : '正在读取上游模型目录…'
-      }
       actions={
         <Button
           size="sm"
@@ -221,32 +208,9 @@ export function ModelsPage() {
         </Button>
       }
     >
-      {/* 筛选条与表格同属一个 Panel：它们是"同一个列表的不同视图"，不该拆成两块 */}
+      {/* 筛选条与卡片矩阵同属一个 Panel：它们是"同一个列表的不同视图"，不该拆成两块 */}
       <Panel flush>
         <div className="flex flex-wrap items-center gap-2 border-b border-border-subtle px-3 py-2">
-          <div className="relative min-w-[12rem] flex-1 sm:max-w-xs">
-            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={q}
-              onChange={(e) => patch({ q: e.target.value })}
-              placeholder="搜索模型名或 ID…"
-              aria-label="搜索模型"
-              className="h-8 pl-8 text-xs"
-              spellCheck={false}
-            />
-            {q ? (
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label="清除搜索"
-                onClick={() => patch({ q: null })}
-                className="absolute top-1/2 right-1 -translate-y-1/2"
-              >
-                <X />
-              </Button>
-            ) : null}
-          </div>
-
           {/* 分面：分段控件形态。选中态用底色 + 前景色，不引入新的语义色 */}
           <div
             role="group"
@@ -265,8 +229,8 @@ export function ModelsPage() {
                     'inline-flex items-center gap-1.5 rounded-sm px-2 py-1 text-2xs font-medium transition-colors',
                     'outline-none focus-visible:ring-2 focus-visible:ring-ring',
                     active
-                      ? 'bg-card text-foreground shadow-border'
-                      : 'text-muted-foreground hover:text-foreground',
+                      ? 'bg-primary text-primary-foreground shadow-primary'
+                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
                   )}
                 >
                   {item.label}
@@ -296,9 +260,9 @@ export function ModelsPage() {
         </div>
 
         {isLoading ? (
-          <div className="space-y-1.5 p-3">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <Skeleton key={i} className="h-8 rounded-sm" />
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(13.5rem,1fr))] gap-2 p-3">
+            {Array.from({ length: 12 }).map((_, i) => (
+              <Skeleton key={i} className="h-16 rounded-md" />
             ))}
           </div>
         ) : rows.length === 0 ? (
@@ -318,41 +282,13 @@ export function ModelsPage() {
             }
           />
         ) : (
-          <div className="scroll-thin max-h-[calc(100svh-14rem)] overflow-auto">
-            <Table className="text-xs">
-              <TableHeader className="sticky top-0 z-10 bg-card">
-                <TableRow className="hover:bg-transparent">
-                  <TableHead className={HEAD}>模型 ID</TableHead>
-                  <TableHead className={HEAD}>名称</TableHead>
-                  <TableHead className={HEAD}>区域</TableHead>
-                  <TableHead className={cn(HEAD, 'text-right')}>上下文</TableHead>
-                  <TableHead className={cn(HEAD, 'text-right')}>最大输出</TableHead>
-                  <TableHead className={cn(HEAD, 'text-right')}>倍率</TableHead>
-                </TableRow>
-              </TableHeader>
-
-              <TableBody>
-                {/* 分组模式插入家族标题行；平铺模式直接按排序输出 */}
-                {groups
-                  ? groups.map((group) => (
-                      <Fragment key={group.family}>
-                        <TableRow className="hover:bg-transparent">
-                          <TableCell
-                            colSpan={6}
-                            className="h-6 bg-muted/60 px-3 py-0 text-2xs font-medium text-muted-foreground"
-                          >
-                            <span className="font-mono">{group.family}</span>
-                            <span className="tnum ml-2 opacity-70">{group.items.length}</span>
-                          </TableCell>
-                        </TableRow>
-                        {group.items.map((model) => (
-                          <ModelRow key={model.id} model={model} />
-                        ))}
-                      </Fragment>
-                    ))
-                  : rows.map((model) => <ModelRow key={model.id} model={model} />)}
-              </TableBody>
-            </Table>
+          <div className="scroll-thin max-h-[calc(100svh-13rem)] overflow-auto p-3">
+            {/* 一张连续密集网格，横向永远铺满 */}
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(13.5rem,1fr))] gap-2">
+              {rows.map((model) => (
+                <ModelCard key={model.id} model={model} />
+              ))}
+            </div>
           </div>
         )}
       </Panel>

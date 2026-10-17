@@ -60,6 +60,25 @@ export function formatCredits(value: number | null | undefined): string {
   }).format(fixed)
 }
 
+/**
+ * 余额卡上的数字。与 `formatCredits` 的区别只有一个：**保留 1 位小数**（四舍五入）。
+ *
+ * 为什么余额要显示小数：上游给的是 `831.53000015` 这样的精确值，而「基础 + 奖励」
+ * 只有在两个数都保留小数时才加得回来。若都向下取整，两个桶各丢 0.5，
+ * 用户拿合计去对客户端就会差 1 分。而 `formatCredits` 对 >=100 的数直接取整，
+ * 那正是过去「显示不准确」给人的观感之一。
+ *
+ * 仍然是自适应：整数 → 不带小数点（"500"），有零头 → "831.5"。
+ */
+export function formatBalance(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—'
+  const rounded = Math.round(value * 10) / 10
+  return new Intl.NumberFormat('zh-CN', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 1,
+  }).format(rounded)
+}
+
 /** 紧凑数值，给图表坐标轴用：1234 → "1.2k" */
 export function formatCompact(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return '—'
@@ -180,22 +199,14 @@ export function formatCreditMultiplier(raw: string | null | undefined): string {
  *     未识别时退回 id 本身，保证一定有个可用的分组键。
  */
 export function modelFamily(id: string): string {
-  const base = id.replace(/^(cn|global)\//, '')
   // 去掉日期后缀（-20250514 / -2024-05-14）
-  const noDate = base.replace(/[-_]?\d{8}$/, '').replace(/[-_]?\d{4}-\d{2}-\d{2}$/, '')
+  const noDate = id.replace(/[-_]?\d{8}$/, '').replace(/[-_]?\d{4}-\d{2}-\d{2}$/, '')
   // 去掉尾部的档位词，归到同一家族
   const noTier = noDate.replace(
     /[-_](flash|pro|plus|max|mini|mini-high|air|lite|turbo|preview|latest|high|low|thinking)$/i,
     '',
   )
-  return noTier || base
-}
-
-/** region → 中文标签 */
-export function regionLabel(region: string): string {
-  if (region === 'cn') return '国内'
-  if (region === 'global') return '国际'
-  return region
+  return noTier || id
 }
 
 /* ------------------------------------------------------------------ */

@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { AccountTone } from '@/lib/format'
 import { daysUntil } from '@/lib/format'
-import type { Account, CheckinAccount, LogStats } from '@/lib/types'
+import type { Account, CheckinAccount } from '@/lib/types'
 
 interface Issue {
   key: string
@@ -43,12 +43,7 @@ const ICON_CLASS: Record<AccountTone, string> = {
 
 const MAX_ISSUES = 3
 
-function collect(
-  accounts: Account[],
-  checkin: CheckinAccount[],
-  stats: LogStats | undefined,
-  offline: boolean,
-): Issue[] {
+function collect(accounts: Account[], checkin: CheckinAccount[], offline: boolean): Issue[] {
   const issues: Issue[] = []
 
   if (offline) {
@@ -80,7 +75,7 @@ function collect(
       tone: 'danger',
       icon: AlertTriangle,
       title: '当前没有可用账号',
-      detail: '所有账号都不可用，新请求会直接失败。先看下面的账号表定位原因。',
+      detail: '所有账号都不可用，新请求会直接失败。先看下面的账号列表定位原因。',
     })
   }
 
@@ -91,23 +86,26 @@ function collect(
       tone: 'warning',
       icon: AlertTriangle,
       title: `${exhausted.length} 个账号额度耗尽`,
-      detail: `${exhausted.map((a) => a.nickname || a.uin).join('、')} —— 去下方「签到」领取今日积分。`,
-      action: { label: '去签到', to: '#checkin' },
+      detail: `${exhausted.map((a) => a.uin).join('、')} —— 签到每天补一次，但已耗尽的号得等下一轮自动签到（或在账号面板点「立即签到」）。`,
+      action: { label: '看账号', to: '#accounts' },
     })
   }
 
-  // 签到待领：只统计"支持签到 + 查询成功 + 今天还没领"的
+  // 签到待领：只统计"查询成功 + 今天还没领"的。
+  // ★ 2026-10-16：签到改为服务端全自动（gateway/checkin.py）后，
+  // 这条从"要你动手"降级为"进度提示"——措辞必须跟着改，
+  // 否则横幅会把一件正在自动完成的事说成需要用户操作的故障。
   const claimable = checkin.filter(
-    (c) => c.supported && !c.error && c.today_checked_in === false,
+    (c) => !c.error && c.today_checked_in === false,
   )
   if (claimable.length > 0) {
     issues.push({
       key: 'claimable',
       tone: 'warning',
       icon: Gift,
-      title: `有 ${claimable.length} 个账号今日签到未领`,
-      detail: '签到积分不会自动领取（半自动设计），需要你在下方显式确认。',
-      action: { label: '去领取', to: '#checkin' },
+      title: `有 ${claimable.length} 个账号今日签到还在排队`,
+      detail: '自动签到会自己把它们领掉；不想等就在账号面板点「立即签到」。',
+      action: { label: '看账号', to: '#accounts' },
     })
   }
 
@@ -126,15 +124,9 @@ function collect(
     })
   }
 
-  if (stats && stats.total_errors > 0) {
-    issues.push({
-      key: 'errors',
-      tone: 'warning',
-      icon: AlertTriangle,
-      title: `本进程累计 ${stats.total_errors} 次失败请求`,
-      detail: '失败详情见下方「最近请求」里标红的行。',
-    })
-  }
+  // 失败请求不再横幅告警：反代池跑久了必然积累一些 4xx/5xx（上游限流、模型下线
+  // 之类），是常态而不是事故。逐条失败在「最近请求」里本来就有标红，横幅再喊一遍
+  // 等于双重报警，最后只会让人无视这个横幅 —— 横幅要留给"需要你动手"的问题。
 
   return issues
 }
@@ -142,15 +134,13 @@ function collect(
 export function HealthBanner({
   accounts,
   checkin,
-  stats,
   offline,
 }: {
   accounts: Account[]
   checkin: CheckinAccount[]
-  stats: LogStats | undefined
   offline: boolean
 }) {
-  const issues = collect(accounts, checkin, stats, offline).slice(0, MAX_ISSUES)
+  const issues = collect(accounts, checkin, offline).slice(0, MAX_ISSUES)
   if (issues.length === 0) return null
 
   return (

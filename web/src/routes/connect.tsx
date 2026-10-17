@@ -219,7 +219,6 @@ for await (const chunk of stream) {
   return (
     <Page
       title="接入"
-      description="把网关当作 OpenAI 兼容服务使用即可。以下值均可直接复制。"
     >
       <Panel
         title="连接信息"
@@ -300,12 +299,6 @@ for await (const chunk of stream) {
             />
           </Field>
         </dl>
-
-        <p className="mt-3 border-t border-border-subtle pt-3 text-2xs text-muted-foreground">
-          网关只监听回环地址（并有 Host 校验防 DNS 重绑定），所以**不需要 CORS 配置**，
-          也不要把端口暴露到公网。推荐模型：<code className="font-mono">{model}</code>
-          （从实时目录中挑选的可用项）。
-        </p>
       </Panel>
 
       <div className="grid gap-4 xl:grid-cols-2">

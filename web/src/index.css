@@ -1,10 +1,20 @@
 /* ==========================================================================
    WorkBuddy 网关控制台 · 设计 token
    --------------------------------------------------------------------------
-   依据与实测数据见 docs/设计调研.md。核心约定：
+   ★ 2026-10-16 改版：由「全灰阶」改为「蓝色科技风」彩色主题。
+     原因是原方案把所有面积都压成灰阶，可用性上没问题、观感上却显得死气沉沉。
+     这次改版的核心取舍是：**颜色按面积分层投放**，而不是到处刷彩色。
 
-   1. 中性色用 Radix **Slate** 12 档，每档用途固定，禁止跨档混用
-      （1-2 底 · 3-5 组件底 · 6-8 边框 · 9-10 实心 · 11-12 文字）。
+       · 大面积（页面底/卡片）仍保持接近白色的冷色调，只带一点蓝，
+         保证长时间盯表格不累眼，也保证状态色一出现就跳出来。
+       · 中等面积（顶栏、页头、KPI 条、面板标题）用品牌蓝做点缀与强调，
+         这是"有颜色"的主要观感来源。
+       · 小面积（状态点、chip、图表序列）继续只表示状态语义，不上装饰色。
+
+     原方案的设计约定中，仍然有效的部分（保留）：
+   1. 中性色改用带蓝调的 **冷灰 12 档**（下称 slate，值见 §2），每档用途固定，
+      禁止跨档混用（1-2 底 · 3-5 组件底 · 6-8 边框 · 9-10 实心 · 11-12 文字）。
+      注意：这套值整体向蓝偏移，是为了和品牌蓝同源，不再等同于 Radix Slate。
    2. 字体：Geist（拉丁/数字）+ 系统中文。**不内嵌 CJK webfont**（4.78MB，理由见调研 §4）。
    3. 边框优先用 Geist 的「阴影描边」`0 0 0 1px`，不占布局、贴合圆角。
    4. 字号与行高**全部取偶数**（12/14/16/20/24 + 行高 16/20/24/28/32）。
@@ -12,18 +22,16 @@
    5. 面板**固定浅色**，不做主题切换（明确的产品决定）。
       原本还有一整套暗色 token，已移除，见下面第 3 节的位置说明。
 
-   状态色全部经过程序化对比度实测，不是估的。两个关键实测结论：
-   · 亮色下没有任何 step-9 实心色能让白字过 AA（red-9 仅 3.91、amber-9 仅 1.58），
-     所以**实心底取 step-11**：red-11+白 5.21、green-11 4.72、blue-11 4.77、amber-11 4.61。
-   · amber 的 step-9/10 是为「深色文字放在它上面」设计的（注意：这里说的"深色文字"
-     指文字颜色深，与主题无关），当状态点用它们只有 1.54–1.67，
-     所以**警告点必须用 amber-11 `#ab6400`**。这是唯一一个不可避免的特例。
+   状态色全部经过程序化对比度实测，不是估的：
+   · 五个语义色的 `-solid` 都是「白字放上去 ≥4.5:1」的实测值。
+   · `-dot` 是 6px 状态点，按非文本 3:1 门槛取值，比文字色**更亮**才醒目，
+     但又不越过 3:1 —— 两者取值的差别是有意为之，不是不一致。
 
    --------------------------------------------------------------------------
    对 shadcn 预设做的两处修改（都是无障碍缺陷，不是审美偏好）：
    1. 12 个组件里的 `focus-visible:ring-ring/50` 已全部改为 `ring-ring`。
       半透明环实测只有 1.81:1，达不到 WCAG 2.4.11 对焦点指示器要求的 3:1。
-      改后为 3.26:1。
+      改后为 4.87:1（主蓝更深，余量比改版前更大）。
    2. `--input` 用 slate-9 而非预设的浅灰，让交互组件外框满足 1.4.11 的 3:1。
    ========================================================================== */
 
@@ -75,6 +83,12 @@
   --font-heading: var(--font-sans);
 
   /* ---- 字号：全部偶数，行高也全部偶数 ---- */
+  /* 11/14：只给「余额桶明细」这类必须可见、但不该与主数字争抢的字用。
+     2xs(12px) 与主数字同尺寸，两行叠在一起会看不出主次（实测：行高 36px 的
+     列表里余额格被撑到 42px，直接顶穿了分隔线）。 */
+  --text-3xs: 11px;
+  --text-3xs--line-height: 14px;
+  --text-3xs--letter-spacing: 0.01em;
   --text-2xs: 12px;
   --text-2xs--line-height: 16px;
   --text-2xs--letter-spacing: 0em;
@@ -126,7 +140,7 @@
   --color-slate-11: var(--slate-11);
   --color-slate-12: var(--slate-12);
 
-  /* ---- shadcn 语义层（名字保持不变，值换成 Radix Slate） ---- */
+  /* ---- shadcn 语义层（名字保持不变，值换成品牌蓝 + 冷灰） ---- */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -135,6 +149,10 @@
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  /* 品牌蓝的浅底片：用于 KPI 强调、选中态、图标底。
+     与 success-subtle 等状态底片同一思路 —— 浅到不抢文字，深到能看出"这块不一样" */
+  --color-primary-subtle: var(--primary-subtle);
+  --color-primary-border: var(--primary-border);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
@@ -194,6 +212,17 @@
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
 
+  /* 连续色阶（分布条 / 日历热力图）。详见下面 --chart-gradient-* 的说明 */
+  --color-chart-gradient-1: var(--chart-gradient-1);
+  --color-chart-gradient-2: var(--chart-gradient-2);
+  --color-chart-gradient-3: var(--chart-gradient-3);
+  --color-chart-gradient-4: var(--chart-gradient-4);
+  --color-chart-heat-0: var(--chart-heat-0);
+  --color-chart-heat-1: var(--chart-heat-1);
+  --color-chart-heat-2: var(--chart-heat-2);
+  --color-chart-heat-3: var(--chart-heat-3);
+  --color-chart-heat-4: var(--chart-heat-4);
+
   /* ---- 代码高亮 ---- */
   --color-code-bg: var(--code-bg);
   --color-tok-kw: var(--tok-kw);
@@ -213,13 +242,25 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  /* ---- 材质：Geist 的阴影描边做法 ---- */
+  /* ---- 材质：Geist 的阴影描边做法 + 品牌蓝的柔和投影 ---- */
   --shadow-border: 0 0 0 1px var(--border);
   --shadow-border-subtle: 0 0 0 1px var(--border-subtle);
   --shadow-xs: 0 1px 2px rgb(0 0 0 / 0.04);
   --shadow-sm: 0 2px 2px rgb(0 0 0 / 0.04);
   --shadow-md: 0 2px 2px rgb(0 0 0 / 0.04), 0 8px 8px -8px rgb(0 0 0 / 0.04);
   --shadow-lg: 0 2px 2px rgb(0 0 0 / 0.04), 0 8px 16px -4px rgb(0 0 0 / 0.06);
+  /* 主按钮/选中项的蓝色投影：唯一的"发光"来源，只在小面积上用。
+     黑色投影在蓝底上会显脏，用主色自己派生的投影才干净 */
+  --shadow-primary: 0 1px 2px rgb(37 99 235 / 0.24), 0 4px 12px -4px rgb(37 99 235 / 0.28);
+
+  /* ---- 品牌渐变：顶栏下沿的进度条、页头装饰线等窄条使用。
+       两段蓝（亮→深），方向固定 90deg，保证任何宽度下都好读 ---- */
+  --gradient-brand: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--primary) 55%, #38bdf8) 0%,
+    var(--primary) 55%,
+    color-mix(in oklab, var(--primary) 78%, #1e3a8a) 100%
+  );
 }
 
 /* ==========================================================================
@@ -229,135 +270,170 @@
 :root {
   color-scheme: light;
 
-  /* Radix Slate · 12 档 */
-  --slate-1: #fcfcfd;
-  --slate-2: #f9f9fb;
-  --slate-3: #f0f0f3;
-  --slate-4: #e8e8ec;
-  --slate-5: #e0e1e6;
-  --slate-6: #d9d9e0;
-  --slate-7: #cdced6;
-  --slate-8: #b9bbc6;
-  --slate-9: #8b8d98;
-  --slate-10: #80838d;
-  --slate-11: #60646c;
-  --slate-12: #1c2024;
+  /* 冷灰 12 档（向蓝偏移，与品牌蓝同源）
+     用途分层同原方案：1-2 底 · 3-5 组件底 · 6-8 边框 · 9-10 实心 · 11-12 文字 */
+  --slate-1: #f9fafc;
+  --slate-2: #f4f6fa;
+  --slate-3: #eceff5;
+  --slate-4: #e4e8f0;
+  --slate-5: #dce1ea;
+  --slate-6: #d3d9e3;
+  --slate-7: #c3cad6;
+  --slate-8: #a9b2c1;
+  --slate-9: #7d8798;
+  --slate-10: #6f7a8c;
+  --slate-11: #5a6472;
+  --slate-12: #171b26;
 
   /* P3 渐进增强：广色域屏上更饱和，不支持则用上面的 hex */
   @supports (color: color(display-p3 1 1 1)) {
-    --slate-1: color(display-p3 0.988 0.988 0.992);
-    --slate-2: color(display-p3 0.976 0.976 0.984);
-    --slate-3: color(display-p3 0.94 0.941 0.953);
-    --slate-4: color(display-p3 0.908 0.909 0.925);
-    --slate-5: color(display-p3 0.88 0.881 0.901);
-    --slate-6: color(display-p3 0.85 0.852 0.876);
-    --slate-7: color(display-p3 0.805 0.808 0.838);
-    --slate-8: color(display-p3 0.727 0.733 0.773);
-    --slate-9: color(display-p3 0.547 0.553 0.592);
-    --slate-10: color(display-p3 0.503 0.512 0.549);
-    --slate-11: color(display-p3 0.379 0.392 0.421);
-    --slate-12: color(display-p3 0.113 0.125 0.14);
+    --slate-1: color(display-p3 0.976 0.98 0.988);
+    --slate-2: color(display-p3 0.957 0.965 0.98);
+    --slate-3: color(display-p3 0.925 0.937 0.961);
+    --slate-4: color(display-p3 0.894 0.91 0.941);
+    --slate-5: color(display-p3 0.863 0.882 0.918);
+    --slate-6: color(display-p3 0.827 0.851 0.89);
+    --slate-7: color(display-p3 0.765 0.792 0.839);
+    --slate-8: color(display-p3 0.663 0.698 0.757);
+    --slate-9: color(display-p3 0.49 0.529 0.596);
+    --slate-10: color(display-p3 0.435 0.478 0.549);
+    --slate-11: color(display-p3 0.353 0.392 0.447);
+    --slate-12: color(display-p3 0.09 0.106 0.149);
   }
 
-  /* 页面分层：页面 slate-1，卡片纯白浮起，侧栏 slate-2 沉下 */
-  --background: #fcfcfd;
-  --foreground: #1c2024;
+  /* 页面分层：页面带一点冷蓝，卡片纯白浮起，侧栏再沉一层 */
+  --background: #f7f8fc;
+  --foreground: #171b26;
   --card: #ffffff;
-  --card-foreground: #1c2024;
+  --card-foreground: #171b26;
   --popover: #ffffff;
-  --popover-foreground: #1c2024;
+  --popover-foreground: #171b26;
 
-  --primary: #1c2024;
-  --primary-foreground: #fcfcfd;
-  --secondary: #f0f0f3;
-  --secondary-foreground: #1c2024;
-  --muted: #f9f9fb;
-  --muted-foreground: #60646c;      /* on 页面底 5.79:1 ✓ */
-  --accent: #f0f0f3;
-  --accent-foreground: #1c2024;
+  /* 主色 = 品牌蓝。白字 5.17:1，作文字在页面底 4.87:1 —— 两种用法都过 AA */
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --primary-subtle: #eff4ff;
+  --primary-border: #a8c8fb;
+  --secondary: #eceff7;
+  --secondary-foreground: #171b26;
+  --muted: #f2f4fa;
+  --muted-foreground: #5a6472;      /* on 页面底 5.65:1 ✓ */
+  /* accent 是 hover / 选中底色。原方案用中性灰，改版后改用**极浅蓝**，
+     这样"鼠标扫过"和"已选中"都带一点品牌色，是观感上最直接的变化之一 */
+  --accent: #e8eefc;
+  --accent-foreground: #1d4ed8;
 
   /* step 6 = 结构性边框（卡片、面板）；step 4 = 极轻分隔线（表格行、工具条） */
-  --border: #d9d9e0;
-  --border-subtle: #e8e8ec;
-  /* 输入框边框用 slate-9（3.30:1 on 白）—— 交互组件的外框受 WCAG 1.4.11 约束，
+  --border: #d3d9e3;
+  --border-subtle: #e4e8f0;
+  /* 输入框边框用 slate-9（3.63:1 on 白）—— 交互组件的外框受 WCAG 1.4.11 约束，
      必须达到非文本 3:1。结构性边框（卡片、分隔线）是装饰性的，不在该条款范围内，
      所以用更浅的 slate-6，避免整页都是硬黑框。这是有依据的区别对待。 */
-  --input: #8b8d98;
-  --ring: #0090ff;
-  --ring-offset: #fcfcfd;
+  --input: #7d8798;
+  /* 焦点环改用品牌蓝：4.87:1，远高于 2.4.11 要求的 3:1，且与主色统一 */
+  --ring: #2563eb;
+  --ring-offset: #ffffff;
 
   /* 状态色 · 亮色
-     ── 亮色配色规律 ──
-     文字：不低于 step-11 的深度，保证在 page / card / slate-2 / slate-3 / 自己的底片
-           五种表面上**全部** ≥4.5:1（实测最低 4.56）
+     ── 配色规律 ──
+     文字：不低于折算后 step-11 的深度，保证在 page / card / 自己的底片
+           三种表面上**全部** ≥4.5:1（实测最低 4.51）
      实心块：同色 + 白字，全部 ≥4.5:1
-     状态点：step-10 深度，全部 ≥3:1（非文本门槛）
-     底片：用 **step-2** 而非 step-3 —— Radix 保证的配对是「11 on 2」而不是「11 on 3」，
-           且浅色底片必须贴近页面亮度，否则压掉文字的对比度
-     警告是唯一需要特殊取值的语义：amber-9/10 只有 1.54/1.67（Radix 官方说明这两档
-     是为「深色文字放在它上面」设计的），所以文字与状态点都取更深的 #a15c00 */
-  --success: #1d7a51;
-  --success-subtle: #f4fbf6;
-  --success-border: #adddc0;
-  --success-dot: #2b9a66;           /* 3.46:1 */
-  --success-solid: #1d7a51;         /* +白字 5.31:1 ✓ */
+     状态点：6px 图形，按非文本 3:1 门槛取**更亮**的值 —— 点越小越需要亮度才看得见
+     底片：贴近页面亮度，过深会压掉其上文字的对比度 */
+  --success: #15803d;               /* 5.02:1 on 卡片 */
+  --success-subtle: #f2fbf5;
+  --success-border: #a7e0bd;
+  --success-dot: #16a34a;           /* 3.30:1 */
+  --success-solid: #15803d;         /* +白字 5.02:1 ✓ */
   --success-foreground: #ffffff;
 
-  --warning: #a15c00;               /* 5.06:1 on 页面底 */
-  --warning-subtle: #fefbe9;
-  --warning-border: #f3d673;
-  --warning-dot: #a15c00;           /* 特例：amber-10 仅 1.67:1，不可用 */
-  --warning-solid: #a15c00;         /* +白字 5.19:1 ✓ */
+  --warning: #b45309;               /* 5.02:1 on 卡片 */
+  --warning-subtle: #fff9ec;
+  --warning-border: #f5d68a;
+  --warning-dot: #b45309;           /* 4.73:1 —— 警告点直接用文字色档 */
+  --warning-solid: #b45309;         /* +白字 5.02:1 ✓ */
   --warning-foreground: #ffffff;
 
-  --danger: #ce2c31;                /* 5.08:1 on 页面底 */
-  --danger-subtle: #fff7f7;
-  --danger-border: #fdbdbe;
-  --danger-dot: #dc3e42;            /* 4.26:1 */
-  --danger-solid: #ce2c31;          /* +白字 5.21:1 ✓ */
+  --danger: #dc2626;                /* 4.83:1 on 卡片 */
+  --danger-subtle: #fff5f5;
+  --danger-border: #fbb6b6;
+  --danger-dot: #dc2626;            /* 4.83:1 */
+  --danger-solid: #dc2626;          /* +白字 4.83:1 ✓ */
   --danger-foreground: #ffffff;
 
-  --info: #0c6cbf;                  /* 5.23:1 on 页面底 */
-  --info-subtle: #f4faff;
-  --info-border: #acd8fc;
-  --info-dot: #0588f0;              /* 3.54:1 */
-  --info-solid: #0c6cbf;            /* +白字 5.37:1 ✓ */
+  --info: #2563eb;                  /* 5.17:1 on 卡片 —— 与主色同源 */
+  --info-subtle: #f2f7ff;
+  --info-border: #a8c8fb;
+  --info-dot: #3b82f6;              /* 3.68:1 */
+  --info-solid: #2563eb;            /* +白字 5.17:1 ✓ */
   --info-foreground: #ffffff;
 
-  --idle: #60646c;                  /* 5.79:1 on 页面底 */
-  --idle-subtle: #f9f9fb;
-  --idle-border: #d9d9e0;
-  --idle-dot: #80838d;              /* 3.69:1 */
+  --idle: #5b6b7f;                  /* 5.45:1 on 卡片 */
+  --idle-subtle: #f8fafc;
+  --idle-border: #dbe2ea;
+  --idle-dot: #7f8fa3;              /* 3.11:1 */
 
   /* shadcn 的 destructive 复用 danger（Button/Alert 的 destructive 变体读它） */
-  --destructive: #ce2c31;
+  --destructive: #dc2626;
   --destructive-foreground: #ffffff;
 
-  /* 图表：单序列为主，所以 chart-1 是主角。全部实测过 3:1 非文本门槛 */
-  --chart-1: #0090ff;               /* 3.26:1 —— 主序列（消耗积分） */
-  --chart-2: #30a46c;               /* 3.16:1 —— 次序列（请求数） */
-  --chart-3: #ef5f00;               /* 3.33:1 —— 第三序列（失败数） */
-  --chart-4: #8e4ec6;               /* 5.18:1 —— 第四序列 */
-  --chart-5: #80838d;               /* 3.78:1 —— 中性/其它 */
+  /* 图表：chart-1 是品牌蓝主力序列，与 KPI/按钮同色，形成"品牌色贯穿"。
+     全部实测过 3:1 非文本门槛 */
+  --chart-1: #2563eb;               /* 5.17:1 —— 主序列（消耗积分） */
+  --chart-2: #16a34a;               /* 3.30:1 —— 次序列（请求数） */
+  --chart-3: #ea580c;               /* 3.56:1 —— 第三序列（失败数） */
+  --chart-4: #7c3aed;               /* 5.70:1 —— 第四序列 */
+  --chart-5: #7d8798;               /* 3.63:1 —— 中性/其它 */
+
+  /* ------------------------------------------------------------------
+     连续色阶（2026-10-16 新增，配合「分布条 / 日历热力图 / 趋势条」）
+
+     与上面 chart-1..5 的区别，是这次改动最需要说清楚的一点：
+      chart-* 是**离散序列色**（一个序列一个色，靠色相区分"这是哪个指标"）；
+      chart-gradient-* / chart-heat-* 是**连续量级色**（同一个色相，靠明度区分"多少"）。
+
+     为什么可以引入连续色阶：项目的颜色约定是「颜色一出现就意味着看这里」。
+     连续渐变不违反它 —— 它是一条尺度，读者不会把"浅蓝→深蓝"误读成告警。
+     红/绿仍然**只**表达状态（危险/正常），没有被稀释。
+
+     可辨识性按**相邻档对比度**验收（不是与背景的对比度）：
+     连续色阶是"格子挨着格子"被比较的，相邻档分不开就等于没有分档。
+     实测相邻档 1.53–1.70:1，逐档可辨；最深档与白底 ≥3:1（非文本门槛）。
+     校验脚本：web/scripts/check-contrast.mjs
+     ------------------------------------------------------------------ */
+  --chart-gradient-1: #cdd9ec;      /* 快  <p50 */
+  --chart-gradient-2: #93b0e0;      /* 中  p50–p90 */
+  --chart-gradient-3: #5b83cf;      /* 慢  p90–p99 */
+  --chart-gradient-4: #2f5fbe;      /* 长尾 ≥p99 —— 用最深一档，与"危险"红区分开 */
+
+  /* 日历热力：第 0 档是**空值档**（当天没有请求）。
+     它必须比第 1 档明显浅 —— "0 次"和"1 次"分不开的话，
+     整张图最有信息量的那笔（一片空白 = 新池子）就没了。 */
+  --chart-heat-0: #f0f2f7;          /* 0 次 */
+  --chart-heat-1: #c2d8f2;
+  --chart-heat-2: #8ab0e4;
+  --chart-heat-3: #4d80cf;
+  --chart-heat-4: #1d4fa8;          /* 窗口内峰值日 7.68:1 */
 
   /* 代码高亮 */
-  --code-bg: #f9f9fb;
-  --tok-kw: #0d74ce;
-  --tok-str: #218358;
-  --tok-num: #ab6400;
-  --tok-com: #60646c;
-  --tok-fn: #7c2ea3;
-  --tok-punct: #1c2024;
+  --code-bg: #f5f7fc;
+  --tok-kw: #1d4ed8;
+  --tok-str: #15803d;
+  --tok-num: #b45309;
+  --tok-com: #5a6472;
+  --tok-fn: #7c3aed;
+  --tok-punct: #171b26;
 
   /* 侧栏 */
-  --sidebar: #f9f9fb;
-  --sidebar-foreground: #1c2024;
-  --sidebar-primary: #1c2024;
-  --sidebar-primary-foreground: #fcfcfd;
-  --sidebar-accent: #f0f0f3;
-  --sidebar-accent-foreground: #1c2024;
-  --sidebar-border: #e8e8ec;
-  --sidebar-ring: #0090ff;
+  --sidebar: #f4f6fc;
+  --sidebar-foreground: #171b26;
+  --sidebar-primary: #2563eb;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e8eefc;
+  --sidebar-accent-foreground: #1d4ed8;
+  --sidebar-border: #e4e8f0;
+  --sidebar-ring: #2563eb;
 
   --radius: 6px;
 }
@@ -477,5 +553,19 @@
   }
   .animate-wbgw-pulse {
     animation: wbgw-pulse 1.6s var(--ease-in-out-std) infinite;
+  }
+
+  /* ---- 品牌渐变 ----
+     只用在「窄条」上，目前唯一的使用点是页头标题左侧那根 4px 宽的小竖条。
+     不做大面积渐变背景 —— 那是"看起来像模板"的头号来源，
+     而且在渐变上放表格会让文字对比度随位置浮动，无法稳定断言。
+
+     ⚠️ 曾经还有两处，都已按反馈去掉（"蓝色的线条太显眼、有点突兀"）：
+       · 顶栏底部的 2px 全宽渐变线（.topbar-brand-line）
+       · KPI 统计条顶部的 2px 全宽渐变线
+     教训：**全宽的装饰性横线**在横向布局里最抢眼，且不承载任何信息。
+     品牌色应留给有语义的元素（Logo、导航选中态、按钮、标签文字）。 */
+  .bg-brand-gradient {
+    background-image: var(--gradient-brand);
   }
 }

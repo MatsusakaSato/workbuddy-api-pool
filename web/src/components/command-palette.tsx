@@ -71,7 +71,6 @@ export function CommandPalette({
       open={open}
       onOpenChange={onOpenChange}
       title="命令面板"
-      description="跳转页面、检索模型、执行操作"
     >
       <CommandInput placeholder="跳转、搜模型、执行操作…" />
       <CommandList>

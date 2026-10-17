@@ -161,9 +161,30 @@ const PAIRS = [
   ['info', '组件边框/页面底', 'border', 'background'],
   ['info', '组件边框/卡片', 'border', 'card'],
   ['info', '表格行分隔线', 'border-subtle', 'card'],
+
+  // —— 非文本：连续色阶对背景的对比度（2026-10-16 新增） ——
+  // 分布条 / 日历热力图的**最深一档**必须能从卡片底上看出来（WCAG 1.4.11，非文本 3:1）。
+  // 浅色档位不做此断言，原因见下面 'adjacent' 段落的说明。
+  ['nontext', '分布条 最深档', 'chart-gradient-4', 'card'],
+  ['nontext', '热力图 峰值档', 'chart-heat-4', 'card'],
+
+  // —— 相邻档可分性（连续色阶的**真正**验收标准） ——
+  // 连续色阶是"格子挨着格子"被比较的：浅档位单独放在白底上确实对比度低，
+  // 但读者从不需要判断"这格比白底深多少"，只需要判断"这格比旁边那格深多少"。
+  // 所以验收相邻档的比值（目标 1.4:1 以上可辨），而不是与背景的 3:1。
+  // 这条规则是有意引入的：直接套用 3:1 会逼出极深的配色，整片图会糊成一块。
+  ['adjacent', '分布条 1→2', 'chart-gradient-1', 'chart-gradient-2'],
+  ['adjacent', '分布条 2→3', 'chart-gradient-2', 'chart-gradient-3'],
+  ['adjacent', '分布条 3→4', 'chart-gradient-3', 'chart-gradient-4'],
+  // 热力图第 0 档是**空值档**（当天无请求），必须与"有请求"明显分开，
+  // 否则整张图最有信息量的那笔（一片空白 = 新池子）就没了。
+  ['adjacent', '热力图 空值→1 档', 'chart-heat-0', 'chart-heat-1'],
+  ['adjacent', '热力图 1→2 档', 'chart-heat-1', 'chart-heat-2'],
+  ['adjacent', '热力图 2→3 档', 'chart-heat-2', 'chart-heat-3'],
+  ['adjacent', '热力图 3→4 档', 'chart-heat-3', 'chart-heat-4'],
 ]
 
-const THRESHOLD = { text: 4.5, large: 3, nontext: 3, info: 0 }
+const THRESHOLD = { text: 4.5, large: 3, nontext: 3, info: 0, adjacent: 1.28 }
 
 /* ---------- 跑 ---------- */
 
@@ -197,7 +218,8 @@ for (const theme of themes) {
   for (const [level, label, fgKey, bgKey] of PAIRS) {
     if (level !== lastLevel) {
       const names = { text: '正文文字  门槛 4.5:1', large: '大号文字  门槛 3:1',
-                      nontext: '非文本    门槛 3:1', info: '仅供参考  不断言' }
+                      nontext: '非文本    门槛 3:1', info: '仅供参考  不断言',
+                      adjacent: '相邻档可分  门槛 1.28:1（连续色阶专用）' }
       console.log(`\n  ── ${names[level]} ──`)
       lastLevel = level
     }

@@ -36,7 +36,7 @@ export function RequestLog({ items }: { items: LogItem[] }) {
     return (
       <EmptyState
         title="还没有请求"
-        description="网关一收到 /v1/chat/completions 就会在这里出现一行。可以先在「接入」页拿配置，或点右上「自检」发一条测试请求。"
+        description="点右上「自检」发一条测试请求。"
       />
     )
   }
@@ -82,7 +82,13 @@ export function RequestLog({ items }: { items: LogItem[] }) {
 
           <TableBody>
             {rows.map((item) => (
-              <TableRow key={item.seq} className="group">
+              /* key 必须用「时间戳 + 序号」的组合，不能只用 seq。
+                 seq 是**进程内**自增的，重启后从 1 重来，而日志文件是跨重启累积的，
+                 所以历史数据里存在大量重复 seq（实测 200 条里有 41 个重复值）。
+                 React 遇到重复 key 会复用/丢弃兄弟节点，表现为列表少渲染若干行。
+                 服务端已改为载入时恢复最大 seq（新记录不再重复），
+                 但已落盘的历史记录仍需靠这个组合键兜住。 */
+              <TableRow key={`${item.at}-${item.seq}`} className="group">
                 <TableCell className={cn(CELL, 'whitespace-nowrap')}>
                   <span className="tnum text-2xs text-muted-foreground">{item.time}</span>
                 </TableCell>
