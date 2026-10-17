@@ -10,9 +10,12 @@
 
 WorkBuddy 没有开放任何本地端口，它自己就是一个**中心化网关的客户端**。你只要能拿到它登录态里的 `accessToken`，就能拿着同一个 token 直接 POST 同一个网关地址——**这就是"反代"的全部**。
 
-而且它是**双区域、两套独立凭据体系**：
+而且它上游是**双区域、两套独立凭据体系**：
 
-| | 国内版 (CN) | 国际版 (Global) |
+> ⚠️ **网关侧状态（2026-10-16）**：网关只做**国内版**。下表**国际版 (Global) 一列仅作历史记录**
+> ——域名为 `*.workbuddy.ai` / `*.codebuddy.ai` 的凭据会被网关直接跳过，不进账号池。
+
+| | 国内版 (CN) | 国际版 (Global)（网关已不再使用） |
 |---|---|---|
 | 对话网关 | `https://copilot.tencent.com` | `https://www.workbuddy.ai` |
 | 计费/配置源 | `https://www.codebuddy.cn` | `https://www.workbuddy.ai` |
@@ -22,7 +25,10 @@ WorkBuddy 没有开放任何本地端口，它自己就是一个**中心化网�
 | GPT 系列 | ❌ | ✅ `gpt-6-astra` / `gpt-5.6-*` / `gpt-5.5` … |
 | GLM / Kimi | ✅ | ✅ |
 
-> 关键：**你要的 DeepSeek 在国内版，你要的 Gemini 在国际版。** 这是两个账号、两个 token、两个 base_url，不能混用——token 签发域和网关必须匹配（拿 `workbuddy.ai` 的 token 调 `copilot.tencent.com` 会被 openresty 层直接 401）。
+> 关键（技术事实）：**DeepSeek 在国内版，Gemini 在国际版。** 这是两个账号、两个 token、两个
+> base_url，不能混用——token 签发域和网关必须匹配（拿 `workbuddy.ai` 的 token 调
+> `copilot.tencent.com` 会被 openresty 层直接 401）。但**网关已决定只走国内版**，所以国际版那一列
+> （含 `gemini-3.5-flash`、GPT 系列）只是逆向记录，不再是可对接路径。
 
 ---
 
@@ -37,7 +43,7 @@ POST {base}/v2/chat/completions
 | 区域 | `{base}` |
 |---|---|
 | CN | `https://copilot.tencent.com` |
-| Global | `https://www.workbuddy.ai`（若凭据 domain 是 `codebuddy.ai` 则用 `https://www.codebuddy.ai`） |
+| Global（网关已不支持，仅历史记录） | `https://www.workbuddy.ai`（若凭据 domain 是 `codebuddy.ai` 则用 `https://www.codebuddy.ai`） |
 
 ### 1.2 请求头
 
@@ -120,7 +126,7 @@ traceparent / b3 / X-B3-TraceId / X-B3-SpanId / X-B3-ParentSpanId / X-B3-Sampled
     "accessToken":  { "$wbEncrypted": 1, "envelope": "…" },  // ← 要的就是它
     "refreshToken": { "$wbEncrypted": 1, "envelope": "…" },
     "tokenType": "Bearer",
-    "domain": "www.workbuddy.cn",   // ← 决定走 CN 还是 Global
+    "domain": "www.workbuddy.cn",   // ← 网关只接受 .cn 域；workbuddy.ai / codebuddy.ai 的凭据会被跳过
     "expiresAt": 1794628367043,     // 约 30 天
     "refreshExpiresAt": 1797220366043
   }
@@ -170,7 +176,7 @@ traceparent / b3 / X-B3-TraceId / X-B3-SpanId / X-B3-ParentSpanId / X-B3-Sampled
 | `minimax-m3` | MiniMax-M3 | 512K | 128K |
 | `hy3` | Hy3 | 192K | 64K |
 
-### 国际版（`www.workbuddy.ai`）
+### 国际版（`www.workbuddy.ai`）——⚠️ 网关已不支持（仅历史记录）
 
 | 模型 ID | 名称 |
 |---|---|
@@ -183,6 +189,7 @@ traceparent / b3 / X-B3-TraceId / X-B3-SpanId / X-B3-ParentSpanId / X-B3-Sampled
 | `hy4-preview` / `hy3` | 混元 |
 | `default-model` / `fast-model` / `balanced-model` / `primary-model` / `deep-model` | 匿名路由档位 |
 
+> ⚠️ 下面这张表属于**国际版**，网关已不再支持，只作历史记录。
 > 上述是**离线兜底名单**（捕获自 `www.workbuddy.ai/v3/config`）。**以 `/v3/config` 实时拉取为准**——它会返回当前可用模型及积分倍率。
 > App 二进制里另外出现 `gemini-2.5-pro`、`gemini-3.6/3.7/3.8-flash` 等字符串，属于产品配置缓存，**未必对当前账号开放**。
 
@@ -207,7 +214,8 @@ curl -N https://copilot.tencent.com/v2/chat/completions \
   -d '{"model":"deepseek-v4-pro","stream":true,"messages":[{"role":"user","content":"你好"}]}'
 ```
 
-Gemini 同理，只换 `base` 与 `model`：
+> ⚠️ **以下属于国际版，网关已不支持**（网关只打国内版 `copilot.tencent.com`）。
+> Gemini 等国际版模型同理，只换 `base` 与 `model`：
 
 ```bash
 curl -N https://www.workbuddy.ai/v2/chat/completions \
@@ -232,7 +240,7 @@ curl -N https://www.workbuddy.ai/v2/chat/completions \
 | 路线 | 工作量 | 说明 |
 |---|---|---|
 | **A. 直接装现成插件** `dsh-connect-workbuddy` | 最低 | 已实现双区域、凭据解密、自动续期、账号池、模型目录，并对外暴露**本地 OpenAI 兼容端点** `/v1/chat/completions` + `/v1/models`（loopback + 随机 Bearer）。你正在用的 DSH 可以直接装。 |
-| **B. 自己写 FastAPI 中转** | 中 | 按本文档实现：读凭据 → 解 envelope → 双区域路由 → 多 token 轮换 → 对外 OpenAI 格式。适合你想完全掌控或对外提供服务。 |
+| **B. 自己写 FastAPI 中转** | 中 | 按本文档实现：读凭据 → 解 envelope → 国内版路由 → 多 token 轮换 → 对外 OpenAI 格式。适合你想完全掌控或对外提供服务。 |
 | **C. 先抓包验证** | 低 | 用 mitmproxy 抓一次真实请求，拿到**明文** `Authorization` 头，即可跳过解密环节，同时验证本文档头部清单是否准确。 |
 
 ---

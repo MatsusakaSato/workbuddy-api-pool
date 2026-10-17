@@ -2,11 +2,13 @@
 
 把一个**本机已登录的 WorkBuddy** 变成 OpenAI 兼容 API，供其他 AI harness（Cursor / Claude Code / Cherry Studio / 各类 SDK）直接调用。
 
+- **WorkBuddy 侧只接国内版**（国际版已移除），另有一条**独立的 Gemini 上游**（AI Studio 或本机 Antigravity 免费档）
 - 后端零第三方依赖（纯 Python 标准库）
 - 只绑 `127.0.0.1`，不对外暴露
 - 多账号池 + 失败自动换号
 - 凭据自动续期（30 天 token，无需重新登录）
-- **半自动签到**：网关负责检测「今天能不能领」，领取动作需要你点按钮
+- **全自动签到**：网关每天自己把号池的签到奖励领掉（带抖动与账号间隔），面板只显示结果；
+  不想等就在账号面板点「立即签到」
 
 > **关于依赖**：网关进程本身仍然是纯 Python 标准库，`./run.sh` 直接起，不需要 pip 装任何东西。
 >
@@ -39,18 +41,20 @@ base_url 填：http://127.0.0.1:8788/v1
 
 ![控制台概览](docs/screenshots/overview.png)
 
-四个页签，都用 **HashRouter** 深链（URL 形如 `#/models?facet=free`）：
+三个页签，都用 **HashRouter** 深链（URL 形如 `#/models?facet=free`）：
 
 | 页签 | 内容 |
 |---|---|
-| 概览 | 单行指标条 · **只在出问题时才出现**的健康横幅 · 账号表 · 签到 · 最近请求日志 |
-| 模型 | 51 个模型，按家族分组，分面筛选（全部 / 免费 / 国内 / 国际）+ 四种排序 + 搜索，点模型 ID 复制 |
-| 用量 | 窗口选择（7/30/90 天）· 指标可切（请求 / 积分 / tokens）的每日柱状图 · 按模型 / 按账号明细 |
+| 概览 | 账号列表（**账号 / 用户名 / 余额 / 是否签到** 四项，余额是横向量级条 + 自动签到状态）、用量区块（窗口选择 · 6 项 KPI · 每日柱+线 · 按模型明细）、**最底部**的最近请求日志、**只在出问题时才出现**的健康横幅 |
+| 模型 | 51 个模型（WorkBuddy 34 + Gemini/Antigravity 17），按家族分组，分面筛选（全部 / 免费）+ 四种排序 + 搜索，点模型 ID 复制 |
 | 接入 | base_url、API key（**默认遮住**）、Gemini 后端、state 目录，以及 curl / Python / Node 复制即用片段（**带语法高亮**，配色直接复用全站 token） |
 
-![模型页](docs/screenshots/models.png)
+> 2026-10-16 的合并：「概览」与「用量」原本是两个页签，现在**合成一页** ——
+> "号还能不能用"与"这段时间花了多少"在排障时总是一起被问，分页意味着每次都要切视野。
+> 旧的 `#/usage` 深链会被**重定向**到 `#/overview`（连 `?w=` 窗口参数一起带过去），
+> 不会失效或落到未知路径。
 
-![用量](docs/screenshots/usage.png)
+![模型页](docs/screenshots/models.png)
 
 接入页（key 默认遮住，所以**这一页现在可以安全截图**；旧面板时代这一页的片段里嵌着完整 key，
 README 因此一直不敢放它的截图）：
@@ -62,8 +66,9 @@ README 因此一直不敢放它的截图）：
 > 深色截图与深色对比度断言。要恢复的话，`web/scripts/check-contrast.mjs` 顶部有一段
 > 守卫信息列出了需要一并恢复的清单 —— 只加回 CSS 而不加回校验和入口会被它拦下。
 
-**全键盘可达**：`⌘K` / `Ctrl+K` 打开命令面板（跳页、搜模型、重载凭据、端到端自检、复制 base_url），
-`⌘B` 折叠侧栏，`Esc` 关闭弹层，Tab 焦点环按 WCAG 2.4.11 做了 3:1 对比度校正。
+**全键盘可达**：导航只有 3 项，Tab 顺序就是阅读顺序；`Esc` 关闭弹层，
+Tab 焦点环按 WCAG 2.4.11 做了 3:1 对比度校正。
+（曾经的 `⌘K` 命令面板与 `⌘B` 侧栏折叠已随搜索功能和侧栏一起移除。）
 
 **打开即用**：面板不需要你手填 key —— 服务端在返回页面时就把 key 注入了（只在这一个回环地址上）。
 
@@ -122,19 +127,18 @@ curl http://127.0.0.1:8788/v1/chat/completions \
 | POST | `/admin/checkin/claim` | 领取奖励（**需显式确认**） |
 | POST | `/admin/reload` | 重新扫描凭据、续期、刷目录 |
 | GET | `/admin/settings` | 面板用的非敏感配置（**不含 key**） |
-| GET | `/admin/models` | 带区域/上下文/倍率的完整模型清单 |
+| GET | `/admin/models` | 带上下文/倍率的完整模型清单 |
 | GET | `/admin/log?limit=N` | 最近请求记录 + 会话统计 |
 | POST | `/admin/selftest` | 端到端自检：真发一条极短请求并报告耗时 |
 | GET | `/` | 控制台界面 |
 
-### 多区域路由
+### 单一区域（国内版）
 
-模型名前缀可以直接强制区域：
+WorkBuddy 侧只接**国内版**，没有区域概念，也没有区域前缀：模型名按上游目录**原样使用**
+（`deepseek-v4-pro`、`glm-5.3`、`kimi-k3-1`…）。凭据 domain 属于 `*.workbuddy.ai` /
+`*.codebuddy.ai` 的账号会被直接跳过。
 
-- `cn/deepseek-v4-pro` → 国内版
-- `global/gemini-3.5-flash` → 国际版
-
-不带前缀时，网关按模型目录自动判断；两边都有则国内版优先（延迟低、有签到）。
+Gemini 是**另一条独立上游**，与号池完全解耦，见下一节。
 
 ---
 
@@ -146,8 +150,7 @@ Gemini 是**独立上游**，与 WorkBuddy 账号池解耦。凭据二选一，*
 |---|---|
 | 本机有 Antigravity 登录凭据（推荐，零配置） | `daily-cloudcode-pa.googleapis.com`（Code Assist 免费档） |
 | 配了 `GEMINI_API_KEY` | Google AI Studio 官方接口 |
-| 两者都没有，但有 WorkBuddy 国际版账号 | 退回 WorkBuddy 国际版网关 |
-| 全都没有 | 返回 `gemini_not_configured`，并给出可执行路径 |
+| 都没有 | 返回 `gemini_not_configured`，并给出可执行路径 |
 
 ### 用 Antigravity 免费档（零配置）
 
@@ -210,25 +213,31 @@ SSE 翻成 OpenAI 的 `chat.completion.chunk`，`finishReason` 映射为 `stop` 
 | 组件 | **shadcn/ui**（radix-nova 预设） | 组件源码进仓库（不是黑盒依赖），可审计、可改；底层是 Radix 的无障碍原语 |
 | 数据 | TanStack Query | 轮询、缓存、失效、重试都是声明式的，不用手写 `setInterval` + 状态机 |
 | 路由 | react-router（HashRouter） | 用 hash 是为了**服务端一行都不用改**：不需要 SPA 回退 |
-| 图表 | recharts | 与 shadcn 的 chart 组件同源 |
+| 图表 | **无图表库**（自绘 SVG 原语，`components/viz.tsx`） | 曾用 recharts（488 KB），实测只需要柱 / 折线 / 量级条 / 分布条 / 趋势线五种形状，自绘后整块依赖消失；详见下面的体积一节 |
 | 字体 | Geist / Geist Mono（自托管 woff2） | 界面数字用 `tabular-nums`，轮询刷新时不会左右抖动 |
 
 ### 设计原则（可执行的那部分）
 
-完整调研见 [`docs/设计调研.md`](docs/设计调研.md)，这里只说三条会被代码强制的：
+完整调研见 [`docs/设计调研.md`](docs/设计调研.md)，这里只说四条会被代码强制的：
 
-1. **状态用「6px 圆点 + 单色文字」，不用彩色 pill。** 一行里出现三五个彩色圆角标签就是
-   「Badge 汤」：彩色面积过大 → 强调失效。颜色在这个界面里**只表示状态**，
-   所以它一旦出现就必然意味着「看这里」。
-2. **KPI 用一行 inline 统计条，不是一排等权重彩色卡片。**
+1. **颜色按面积分层投放，不是到处刷彩色。** 大面（页面底/卡片）保持近白冷色，
+   中面（顶栏/页头/KPI/选中态）用品牌蓝 `#2563eb`，小面（状态点/chip/图表）**只**表示状态语义。
+   这是 2026-10-16 由「全灰阶」改为「蓝色科技风」时的核心取舍 —— 既要摆脱死气沉沉，
+   又不能靠牺牲「颜色=状态」这条纪律来换。
+   **不要加全宽的装饰性横线**：初版在顶栏底部和 KPI 条顶部各加了一条 2px 渐变线，
+   反馈是"太显眼、有点突兀"，两条都已删除。品牌色只留给**有语义**的元素
+   （Logo、导航选中态、按钮、标签文字），否则会稀释"蓝色=可交互/当前"的信号。
+2. **状态用「6px 圆点 + 单色文字」，不用彩色 pill。** 一行里出现三五个彩色圆角标签就是
+   「Badge 汤」：彩色面积过大 → 强调失效。状态色一旦出现就必然意味着「看这里」。
+3. **KPI 用一行 inline 统计条，不是一排等权重彩色卡片。**
    卡片化会把 6 个数字变成 6 个等权重视觉块，人眼扫描依赖差异，等权重等于没有优先序。
-3. **每个数字都 tnum + 右对齐，每个 ID 都等宽字体。** 表格逐行参差是「业余感」的主要来源。
+4. **每个数字都 tnum + 右对齐，每个 ID 都等宽字体。** 表格逐行参差是「业余感」的主要来源。
 
 ### 无障碍是实测的，不是估的
 
 ```bash
 cd web
-pnpm run check:contrast     # 46 条断言（面板固定浅色，只校验一套 token）
+pnpm run check:contrast     # 55 条断言（面板固定浅色，只校验一套 token）
 ```
 
 它解析 `src/index.css` 里的 token、解析 `var()` 链、按 WCAG 公式算真实对比度，任一不达标就非 0 退出。
@@ -238,6 +247,8 @@ pnpm run check:contrast     # 46 条断言（面板固定浅色，只校验一�
 - amber 的 step-9/10 是给「深色文字放在它上面」设计的，当状态点只有 1.54–1.67 → 改用 amber-11
 - shadcn 预设的 `focus-visible:ring-ring/50` 只有 1.81:1，达不到 2.4.11 的 3:1（深色下也只有 2.26:1）
   → 12 个组件里全部改为全不透明
+- 彩色改版时：`idle` 若直接用 Tailwind 的 `slate-500 #64748b` 只有 4.48:1，差一点点不过
+  → 改用 `#5b6b7f`（5.45:1）。**这种"差 0.02"正是本脚本值得存在的地方**。
 
 > 脚本顶部有一段守卫：`index.css` 里若重新出现 `.dark` 块就直接报错 —— 只加回深色样式、
 > 却不加回切换入口和校验，等于造出一套没人用也没人验的样式，不如让它显眼地失败。
@@ -246,13 +257,15 @@ pnpm run check:contrast     # 46 条断言（面板固定浅色，只校验一�
 
 ```bash
 cd web
-pnpm run verify          # headless Chrome 跑 73 项断言
+pnpm run verify          # headless Chrome 跑 117 项断言
 pnpm run verify:shots    # 顺便刷新 docs/screenshots/
 ```
 
-覆盖：key 注入正确且**不被渲染成可见文本**、四个页面都能渲染、无横向溢出、
+覆盖：key 注入正确且**不被渲染成可见文本**、三个页面与合并后的概览各区块都能渲染、
+**账号面板不再是表格且恰好 4 个字段**、余额量级条按池内最大值归一（最长的一条满格）、
+相邻字段可见内容间距 ≥ 40px、**最近请求在版面最底部**、无横向溢出、
 字体与 tnum 生效、**固定浅色（无 `.dark`、无切换入口、旧 `?theme=` 深链已失效并清除）**、
-命令面板开关、路由与**旧深链翻译**、
+路由与**旧深链翻译（含 `#/usage` → `#/overview` 的重定向与 `?w=` 迁移）**、
 模型的 null 倍率显示为「—」而不是「免费」、接入页默认不泄露 key、
 语法高亮生效且**首屏不得加载高亮 chunk**、控制台零错误零失败请求。
 
@@ -264,25 +277,29 @@ pnpm run verify:shots    # 顺便刷新 docs/screenshots/
 ```bash
 cd web
 pnpm run analyze        # 每个 chunk 里到底装了什么（构建到临时目录，不动 gateway/static）
-pnpm run analyze usage  # 只看用量页那个 chunk 的全部模块
+pnpm run analyze connect  # 只看某个 chunk（例如接入页的高亮器）里装了什么
 ```
 
-**首屏 598.1 KB**（未压缩。网关目前没开 gzip —— 开了之后是 179 KB，那是后端阶段的事）：
+**首屏 548.0 KB**（未压缩。网关目前没开 gzip —— 开了之后约 165 KB，那是后端阶段的事）：
 
 | 首屏组成 | 内容 | 大小 |
 |---|---|---|
-| 主入口 chunk | react-dom 518 KB + react-router 84 KB + cmdk 16 KB + 本项目源码 59 KB | 325.1 KB |
-| 共享运行时 chunk | sonner 52 KB + TanStack Query core 50 KB + cn 43 KB + 共享组件 23 KB | 176.0 KB |
-| CSS | 设计 token + 全部工具类 | 97.4 KB |
+| 主入口 chunk | react-dom 537 KB + react-router 86 KB + TanStack Query core 65 KB + sonner 53 KB + 本项目源码 | 445.7 KB |
+| CSS | 设计 token + 全部工具类 | 102.3 KB |
 
-其余全部按需，打开某页才付：
+其余全部按需，打开某页才付（本轮实测，`pnpm run analyze`）：
 
 | 页面 | 额外 | 主要构成 |
 |---|---|---|
-| 概览 | 32.5 KB | 本项目组件 + radix checkbox |
-| 模型 | 39.0 KB | radix select 44 KB |
-| 用量 | 353.5 KB | **recharts 488 KB**（整个前端最贵的一块，只在这页加载） |
-| 接入 | 462.7 KB | shiki 引擎 176 KB + JS 语法 175 KB + Python 70 KB + Shell 41 KB |
+| 概览（含用量区块） | 35.1 KB | 本项目源码 57.1 KB（源）+ lucide 图标 + radix toggle |
+| 模型 | 50.4 KB | radix select 45.5 KB |
+| 接入 | 176.0 KB | shiki 引擎 81.6 KB + oniguruma 46 KB + 高亮语法分 3 个 chunk（JS 174.8 / Python 69.9 / Shell 41.5，**只有切到对应语言的片段才加载**） |
+
+> ★ 2026-10-16：**recharts 已被彻底移除**。它曾是整个前端最贵的一块（488 KB，
+> 只挂在「用量」页）。用量图现在是自绘 SVG（`components/viz.tsx`），
+> 于是「用量」并入概览后**首屏反而比原来小**：598.1 KB → 548.0 KB，
+> 而原来切到用量页要额外付 353.5 KB，现在这 353.5 KB 归零。
+> 验收脚本里有一条断言专门防止 recharts 容器悄悄回来。
 
 字体另有 143.4 KB woff2，按需加载且会被浏览器缓存。
 
@@ -295,7 +312,8 @@ pnpm run analyze usage  # 只看用量页那个 chunk 的全部模块
 
 三个踩过的坑，都留了断言或机制防回归：
 
-- 不拆包时单包 **944 KB**；路由级代码分割后首屏 598.1 KB，recharts 与 shiki 各自只在对应页面加载。
+- 不拆包时单包 **944 KB**；路由级代码分割 + 自绘图表后首屏 **548.0 KB**，
+  shiki 只在接入页加载（且按语言再分三个 chunk）。
 - 高亮 Node 片段一开始用了 `typescript` 语法，但它一个类型标注都没有 ——
   改用 `javascript` 语法结果一样，**省掉 181 KB**。所以 `language`（给用户看的
   文件类型提示）和 `highlightAs`（真正的高亮语法）在代码里是两个独立参数。
@@ -317,6 +335,71 @@ pnpm run typecheck
 pnpm run build        # 输出到 ../gateway/static/（构建产物要提交）
 pnpm run analyze      # 体积排查：每个 chunk 里到底装了什么
 ```
+
+### 开发热重载（改代码不用手动重启）
+
+```bash
+./run.sh --dev-install   # 只需一次：把 hupper 装进项目内的 .devdeps/
+./dev.sh                 # 前后端一起起，Ctrl+C 一起退
+```
+
+`./dev.sh` 会同时拉起两侧：
+
+| 改什么 | 效果 | 机制 |
+|---|---|---|
+| `gateway/**.py` | 进程自动重启 | `hupper` 轮询监视（最多 1s 延迟） |
+| `web/src/**.tsx` | 浏览器热替换，不整页刷新、不丢组件状态 | Vite HMR / React Fast Refresh |
+
+打开 `http://127.0.0.1:5173/`（被占用时 Vite 会自动退到 5174 并打印出来）。
+
+**为什么必须走 dev server**：8788 发的是 `gateway/static/` 里的**构建产物**，
+改源码不会反映出来，得手动 `pnpm run build` —— 这正是"改了没反应"的根源。
+
+只想重载后端、不要前端时，直接 `./run.sh --dev` 也行。
+
+几条设计约束：
+
+- **生产路径零第三方依赖这条铁律不变**。`hupper` 只在 `--dev` 时被 import，
+  且装在项目内的 `.devdeps/`（已进 `.gitignore`）。不加 `--dev` 时
+  `./run.sh` 一个包都不装 —— 实测把 `.devdeps/` 整个删掉，`./run.sh`
+  照常启动、日志里 0 处提到 hupper。
+- **强制使用轮询监视器，不用 watchdog**。这不是保守：macOS 上 watchdog 只能退到
+  kqueue（fsevents 后端装不上），而 kqueue 的监视在 worker 重启后失效 ——
+  实测表现为**只有第一次修改会触发重载，之后怎么改都没反应**。
+  轮询实测连续 4 次修改 4 次重载，稳定。1 秒延迟远比
+  "以为代码生效了其实没有" 划算。
+- **必须忽略 `state/`**。网关每次请求都写 `state/usage.jsonl`，
+  若把它纳入监视会触发「写文件 → 重启 → 又写文件」的无限重启循环。
+  已在 `gateway/server.py` 里用 `ignore_files` 排除，并实测：
+  触发一次写盘后 PID 不变。
+- 没装 `.devdeps` 却用了 `--dev` 时，**直接报错并给出安装命令**，
+  不会静默降级成"看起来支持热重载、其实没有"。
+- **单实例锁**：同一时刻只允许一个 `--dev` 监视器，第二个会明确拒绝启动
+  （报出对方的 PID），而不是起来跟人家抢端口。
+- **端口被占用时给人话错误**，不再抛 `OSError` 栈。
+
+#### 停止 / 清理
+
+```bash
+./stop.sh      # 收掉监视器 + worker，并确认 8788 真的释放了
+```
+
+**为什么单独要个 `stop.sh`**：`--dev` 模式下占住 8788 的是 **worker**，
+但负责重启 worker 的是 **监视器**。只 `kill` worker 的话监视器还在，
+下次改文件它又拉起一个新 worker —— 更糟的是残留多个监视器时，
+每次改文件大家一起去抢 8788，输的当场崩溃。
+
+这不是假想：本项目真的发生过。测试期间留下 **4 个监视器**，
+每次改文件 2 次重载撞出 **2 次 `Address already in use`** 崩溃，
+表现就是"这进程怎么总是崩"。所以现在的规矩是：
+
+1. 监视器自己拿 `state/.dev-reload.lock` 的 `flock`，第二个直接拒绝启动；
+2. 打开锁文件必须用 `O_RDWR|O_CREAT`，**不能用 `open("w")`** ——
+   后者会在 flock 失败之前就把文件截断，把持有者的 PID 抹掉，
+   导致报错时根本读不出"是谁在占着"；
+3. 用 `./stop.sh` 停，而不是手写 `kill`。
+
+`tests/test_reload_guard.py`（14 项）专门守住上面 1 和 2 这两条。
 
 **dev server 的地址要照它打印的那行打开**，形如 `http://127.0.0.1:5173/static/`
 （`base` 是 `/static/`，所以不在根路径）。四个坑都已在 `vite.config.ts` 里处理好了：
@@ -348,8 +431,8 @@ pnpm run analyze      # 体积排查：每个 chunk 里到底装了什么
 ./tests/run_all.sh --no-live    # 后端回归：跳过需要真实上游的探针
 
 cd web
-pnpm run check:contrast         # 前端：对比度实测（46 条断言）
-pnpm run verify                 # 前端：界面自动化验收（73 项断言）
+pnpm run check:contrast         # 前端：对比度实测（55 条断言）
+pnpm run verify                 # 前端：界面自动化验收（117 项断言）
 pnpm run analyze                # 前端：产物构成分析（排查体积用，不是断言）
 pnpm run check:all              # 上面两项 + typecheck + build，一条命令全过
 ```
@@ -357,11 +440,12 @@ pnpm run check:all              # 上面两项 + typecheck + build，一条命�
 | 套件 | 覆盖 | 现状 |
 |---|---|---|
 | `test_cooldown.py` | 限流重置时间解析、时区/负偏移、越界值、`mktime` 归一化陷阱、`retry_after_s` 真的被账号池用上 | **15/15** |
-| `test_usage.py` | 用量聚合、窗口口径、测试流量单独计数 | — |
-| `test_failover.py` | 故障注入：排序生效、假 token 被拒、错误归类、换号、`client` 不换号、`credit` 出池、临时账号不落盘 | **10/10** |
+| `test_usage.py` | 用量聚合、窗口口径、测试流量单独计数 | **69/69** |
+| `test_autocheckin.py` | 全自动签到（离线，不联网）：只领没领过的、跨重启不重领、状态未知不盲领、关闭开关时零上游调用、失败重试且互不影响、状态文件原子写与坏文件容错、下次运行落在 `[interval, interval+jitter]` 窗口内、手动签到的记账 | **23/23** |
+| `test_failover.py` | 故障注入：排序生效、假 token 被拒、错误归类、换号、`client` 不换号、`credit` 出池、临时账号不落盘 | **11/11** |
 | `test_harness_compat.py` | `system`+多轮、`tools`、`include_usage`、`max_tokens`、错误形状、并发流 | **13/13** |
-| `web/scripts/check-contrast.mjs` | WCAG 对比度：正文 4.5:1、非文本 3:1（固定浅色一套 token） | **46/46** |
-| `web/scripts/verify-ui.mjs` | 界面：渲染、溢出、字体、tnum、固定浅色、命令面板、路由、深链、key 不泄露、零控制台错误、语法高亮与懒加载、无主题切换入口 | **73/73** |
+| `web/scripts/check-contrast.mjs` | WCAG 对比度：正文 4.5:1、非文本 3:1（固定浅色一套 token） | **55/55** |
+| `web/scripts/verify-ui.mjs` | 界面：渲染、溢出、字体、tnum、固定浅色、路由、深链与旧地址重定向、**账号面板去表格化（4 字段 + 余额量级条归一 + 相邻字段间距）**、版面顺序（日志在最底）、key 不泄露、零控制台错误、语法高亮与懒加载、无主题切换入口 | **117/117** |
 | `web/scripts/analyze-bundle.mjs` | 产物构成（按包聚合的 module → chunk 映射）；用于排查体积，不做断言 | — |
 
 `tests/mock_gemini.py` 是一个说 Gemini 协议的本地假上游，用来在没有真 key 的情况下验证 Gemini 转换层：
@@ -374,16 +458,52 @@ GEMINI_BASE=http://127.0.0.1:8791/v1beta GEMINI_API_KEY=mock \
   "$PY" -m gateway.server &
 ```
 
-### 半自动签到的保护
+### 全自动签到（★ 这里**推翻**了原先的设计）
 
-`POST /admin/checkin/claim` **必须**明确表态，否则返回 `confirmation_required`：
+**现在的行为**：服务端每天自己把号池里"今天还没领"的账号领掉，用户不需要做任何事。
+调度器在 `gateway/checkin.py`，随服务启动（`server.serve()` 里 `AUTO_CHECKIN.start()`）。
+
+| 参数 | 环境变量 | 默认 |
+|---|---|---|
+| 开关 | `GATEWAY_AUTO_CHECKIN` | `1` |
+| 周期 | `GATEWAY_AUTO_CHECKIN_INTERVAL` | `1800` 秒（30 分钟） |
+| 抖动 | `GATEWAY_AUTO_CHECKIN_JITTER` | `600` 秒（0–10 分钟随机） |
+| 单账号间隔 | `GATEWAY_AUTO_CHECKIN_GAP` | `2.5` 秒 |
+
+> **这是对原决定的推翻，不是"补充"。** 原 README 在这里写的是：
+>
+> > 网关**不会**自己定时领取——这是刻意的：签到是真实领取奖励的动作，自动化会放大风控痕迹。
+>
+> 这条判断本身没错，错的是它把一个**每天都得手动做的动作**当成了长期方案：
+> 5 个号意味着每天点 5 次，漏一天就白丢一天的积分。用户明确要求改成全自动，所以推翻。
+> 诚实地记录代价与缓解措施：
+>
+> | 风险 | 缓解 |
+> |---|---|
+> | 固定整点签到 == 机器人指纹 | **抖动**：每轮在 `interval + rand(jitter)` 后执行，不是严格 30 分钟 |
+> | 5 个号同一秒被领取 | **账号间隔** 2.5 秒串行，不并发打上游 |
+> | 服务刚起来就猛打上游 | 首轮延迟 **5–45 秒**随机，且每 30 秒才轮询一次调度 |
+> | 重复领取被上游风控 | **一天只领一次**：本地按"本地日期 + 账号"记账（`state/checkin.json`），
+>   已领的整天跳过；上游说 `today_checked_in=true` 也不重复提交 |
+> | 状态未知时盲领 | 上游没返回今日状态（`unknown`）时**不领** —— 宁可漏一轮，不冒险 |
+> | 想临时关掉 | `GATEWAY_AUTO_CHECKIN=0` 立即回到纯手动；面板页脚会显示"自动签到已关闭" |
+
+**手动入口仍然保留**（兜底，不是主流程）：`POST /admin/checkin/claim`
+仍**必须**明确表态，否则返回 `confirmation_required` —— 这条限制没有放宽：
 
 ```jsonc
 {"account_ids": ["330100178623"]}   // 领指定账号
-{"all": true}                        // 领全部今日可领账号
+{"all": true}                        // 走同一套 sweep：跳过今天已领的，逐个领
 ```
 
-网关**不会**自己定时领取——这是刻意的：签到是真实领取奖励的动作，自动化会放大风控痕迹。
+面板的「立即签到」按钮发的就是 `{"all": true}`，并且**不是**"无脑重领"：
+它调用的是与自动调度完全相同的 `pool.auto_checkin_sweep()`，
+所以点几次都只会领到当天还没领的那些。
+
+`GET /admin/checkin` 除了每个账号的明细，还会返回一个 `auto` 对象
+（开关、周期、今天已领数量、上次运行时间与结果、每个账号的动作），
+面板页脚那段"自动签到 · 今天已领 5/5 · 下一轮 31m 后"就是直接读它。
+离线测试在 `tests/test_autocheckin.py`（23 项，不联网）。
 
 ---
 
@@ -391,6 +511,7 @@ GEMINI_BASE=http://127.0.0.1:8791/v1beta GEMINI_API_KEY=mock \
 
 ```
 run.sh
+dev.sh        开发模式入口：前后端一起起（后端热重载 + Vite HMR）
 gateway/
   config.py    配置与 key
   creds.py     凭据发现 + 自有库 + 续期
@@ -399,6 +520,7 @@ gateway/
   antigravity.py  Antigravity 免费档通道（借用本机客户端 OAuth 凭据，不改客户端文件）
   pool.py      账号池：选择、失败分类、换号、记账
   activity.py  请求活动环形缓冲（只记元数据，不记对话内容）
+  checkin.py   全自动签到调度器（周期 + 抖动 + 账号间隔 + 本地按日记账）
   server.py    HTTP 层（OpenAI 兼容路由 + /admin/*）
   static/      ← 前端**构建产物**，不要直接改这里的文件
     dashboard.html          由 web/dashboard.html 构建而来（含 key 注入占位符）
@@ -408,23 +530,27 @@ web/           ← 前端源码（改这里，然后 pnpm build）
   src/
     index.css       设计 token 层（颜色/字号/圆角/阴影，固定浅色一套）
     app.tsx         路由与外壳（HashRouter + 路由级代码分割）
-    routes/         四个页面
+    routes/         三个页面：overview（含用量区块）/ models / connect
+                    —— /usage 只是一个重定向到 overview 的兼容路由
+    components/     账号面板（列表，非表格）/ 用量区块 / 健康横幅 / 顶栏 / 可视化原语
     components/ui/  shadcn/ui 组件（21 个，已裁掉未使用的）
     lib/            api / types / format / key / clipboard / utils / 旧深链翻译 / highlighter
-    hooks/          TanStack Query 封装、语法高亮、sidebar 的移动端判断
+    hooks/          TanStack Query 封装、语法高亮
   scripts/
-    check-contrast.mjs    对比度实测（46 条断言，固定浅色）
-    verify-ui.mjs         浏览器端自动化验收（73 项断言）
+    check-contrast.mjs    对比度实测（55 条断言，固定浅色）
+    verify-ui.mjs         浏览器端自动化验收（117 项断言）
     analyze-bundle.mjs    产物构成分析（回答"这个 chunk 里装了什么"）
 tests/
   run_all.sh            回归入口
   test_cooldown.py      限流重置时间解析
   test_usage.py         用量聚合
+  test_autocheckin.py   全自动签到（离线）
   test_failover.py      换号契约（故障注入）
   test_harness_compat.py harness 兼容性
   mock_gemini.py        假 Gemini 上游
 tools/
   read_creds.mjs   at-rest 加密字段的解密助手
+  clash_gemini_route.py  给 Google AI 域名加 Clash 定向规则（解决香港出口被拒）
 docs/
   设计调研.md      设计原则、token 取值依据、对比度实测、反面清单
   screenshots/     README 用的界面截图（由 verify-ui.mjs --shots 生成）
@@ -434,7 +560,8 @@ state/        自有凭据库（0600）与日志
 
 ## 用量统计
 
-面板第 4 个页签「用量」，数据来自 `state/usage.jsonl`。
+面板「概览」页里的**用量区块**，数据来自 `state/usage.jsonl`。
+（2026-10-16 之前它是个独立的第 4 个页签，见上面「页签」表的说明。）
 
 **为什么需要落盘**：原来的活动记录全在内存里，网关一重启就归零 —— 那种数据只能回答「最近几分钟」，
 回答不了「这个月消耗了多少积分」，而后者才是要统计的东西。所以每次请求除写内存环形缓冲外，
@@ -443,11 +570,11 @@ state/        自有凭据库（0600）与日志
 | 展示 | 口径 |
 |---|---|
 | 时间窗口表 | 今天 / 近 7 天 / 近 30 天 / 全部：请求数、失败数、失败率、积分、tokens、平均耗时 |
-| 柱状图 | 近 30 天逐日，可切换「请求 / 积分 / tokens」三种指标；有失败的天标红；断档的日子补 0（跳过会把趋势画假） |
-| 模型明细 | 保留期内按消耗降序：请求、失败、积分、tokens、平均/最大耗时 |
-| 账号明细 | 同上，按账号分组 |
+| 柱状图 | 近 30 天逐日，柱与折线并存（柱=请求数，线=tokens，**共用 hover 浮层**）；有失败的天标红；断档的日子补 0（跳过会把趋势画假） |
+| 模型明细 | 保留期内按消耗降序：请求、占比条、失败、积分、tokens、平均/最大耗时、延迟分布条、行内趋势 |
+| 账号明细 | **已从界面移除**：账号在「概览」顶部已按"账号 / 用户名 / 余额 / 是否签到"四项收敛展示，再放一张按账号的请求表就是同一批 uin 的第二种呈现。窗口内的每账号请求数没有丢 —— 它挂在账号行「余额」的悬浮说明上 |
 
-> ⚠️ **两种口径不一样，别当成 bug**：时间窗口表是**按时间**筛的，模型/账号明细是**保留期内全部**。
+> ⚠️ **两种口径不一样，别当成 bug**：时间窗口表是**按时间**筛的，模型明细是**保留期内全部**。
 > 面板上也写了这句。
 
 **保留期 90 天**：启动时会把更早的记录清掉并重写文件（写临时文件再原子替换），所以文件不会无限长。
@@ -480,7 +607,7 @@ curl -H "Authorization: Bearer $GATEWAY_API_KEY" http://127.0.0.1:8788/admin/usa
 
 1. **对话强制流式**，传 `stream:false` 会得到业务码 `11101`。
 2. **计费类接口必须带 `Origin` / `Referer` / `X-Requested-With`**，否则 `10085 请求不合法`。
-3. **`/v3/config` 是 GET，且 `User-Agent` 决定名单内容**：国内版要用 `CLI/2.63.2 CodeBuddy/2.63.2`，国际版用 `WorkBuddy/5.5.2`。
+3. **`/v3/config` 是 GET，且 `User-Agent` 决定名单内容**：国内版要用 `CLI/2.63.2 CodeBuddy/2.63.2`。
 
 ### 凭据读取
 
@@ -512,7 +639,26 @@ curl -X POST -H "Authorization: Bearer $KEY" http://127.0.0.1:8788/admin/reload
 
 账号按 `uin` 去重；同时存在多份凭据时取过期时间更晚的那份。
 
-**选择顺序**：可用优先 → 积分高的优先 → 凭据更新的优先。
+**选择顺序**：可用优先 → **基础套餐还有剩的号优先** → 时间片轮转 → 按额度/续航/冷却加权随机。
+
+> ⚠️ 这一行曾写的是「积分高的优先」，那是 2026-10 之前的旧行为（每个请求都打到余额最高的号，
+> 直到它被打空）。现在的三层调度见 `docs/账号轮换策略设计.md`。
+
+**基础套餐优先**。WorkBuddy 的余额是两个桶：**基础套餐积分**（月度订阅，月底清零）
+与**平台奖励积分**（一次性赠送包，过期晚得多）。同样是 1 分，基础积分今天不用月底就
+清零，所以只要池子里**还有号**剩基础积分，基础套餐已经耗尽的号就分不到请求；
+全员耗尽时这条自动失效，全池重新参与（「优先」不会变成「只准」）。
+
+| 开关 | 默认 | 说明 |
+|---|---|---|
+| `GATEWAY_ROTATION_BASE_PRIORITY` | `1` | 设 `0` 关闭基础套餐优先，回到「只按总余额加权」 |
+| `GATEWAY_ROTATION_W_BASE` | `1.5` | 同级别内基础积分的偏好权重。**不是**开关：把它拉多高都压不到 0 |
+| `GATEWAY_ROTATION_MIN_INTERVAL_S` | `5` | 同一账号最小复用间隔 |
+| `GATEWAY_ROTATION_SLICE_S` | `30` | 时间片宽度（「等够了」的判据） |
+| `GATEWAY_ROTATION_ENABLED` | `1` | 设 `0` 退回旧的「积分高优先」 |
+
+`/admin/status` 的 `rotation` 里有 `base_tier_active`：为 `true` 表示还有号剩基础套餐
+（基础已耗尽的号此刻被挡在门外），`false` 表示全员耗尽、分级已自动失效。
 
 **失败处理**：
 
@@ -578,7 +724,9 @@ curl -X POST -H "Authorization: Bearer $KEY" http://127.0.0.1:8788/admin/reload
 1. **这是账号级凭据，不是 API key。** 泄露 = 泄露你的 WorkBuddy 登录态。`.env` 与 `state/` 已在 `.gitignore` 里。
 2. **消耗你账号的真实积分**。上游对请求体积敏感：约 20K token 能过，30K 可能直接 429，且 429 **不带** `Retry-After`。
 3. **私有接口，无兼容性承诺。** 客户端升级可能改路径、改头部、改加密格式。
-4. **签到自动化有封号风险**，所以默认是半自动。
+4. **签到自动化有封号风险，而它现在是默认开启的**（用户明确要求，是对原设计的推翻）。
+   风险缓解写在「全自动签到」一节里：抖动、账号间隔、一天一次、状态未知不盲领；
+   想关掉就设 `GATEWAY_AUTO_CHECKIN=0`。
 5. **只监听 127.0.0.1。** 若改成 `0.0.0.0`，必须同时换掉自带的弱鉴权并加 HTTPS——否则等于把账号借给整个局域网。
 
 ---
@@ -593,6 +741,5 @@ curl -X POST -H "Authorization: Bearer $KEY" http://127.0.0.1:8788/admin/reload
   > 免费档被 `UNSUPPORTED_CLIENT` 封禁）」。**该结论已作废。** 打开 Antigravity 客户端完成
   > provisioning 后，`loadCodeAssist` 返回 `currentTier = free-tier`，生成请求正常。
   > 当时真正的失败原因是**出口地区**（香港），与许可无关——这个误判值得记一笔。
-- 签到只在国内版存在，国际版没有该活动。
 - 本地面板的 key 存在浏览器 localStorage，是明文；本机共用账号的情况下请注意。
 - 未实现 `tools` / function calling 的 Gemini 侧转换（WorkBuddy 侧是原样透传）。
