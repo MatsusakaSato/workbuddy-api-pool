@@ -716,6 +716,14 @@ curl -X POST -H "Authorization: Bearer $KEY" http://127.0.0.1:8788/admin/reload
 | `GATEWAY_NODE_BIN` | DSH 内置 node | 解密助手用的 node |
 | `GEMINI_API_KEY` | 空 | 留空则用本机 Antigravity 免费档（推荐）；填了则优先走 AI Studio |
 | `GEMINI_BASE` | `https://generativelanguage.googleapis.com/v1beta` | 可指向自建/代理 |
+| `ANTIGRAVITY_CLIENT_ID` | 空 | Antigravity 通道的 installed-app OAuth 凭据；从本机客户端二进制里取，见下 |
+| `ANTIGRAVITY_CLIENT_SECRET` | 空 | 同上 |
+
+> **为什么这两个要自己填**：这对凭据是装在客户端里的**公开** installed-app 凭据（不是机密），
+> 但 GitHub 的 push protection 会按「Google OAuth Client ID」拦下整条历史，仓库里没法写死。
+> 取法：`strings /Applications/Antigravity.app/Contents/MacOS/Antigravity | grep -E 'apps\.googleusercontent\.com|GOCSPX-'`
+> —— 取到的那一对写进 `.env` 即可。不填也不会崩，只是 Antigravity 通道会报「缺凭据」，
+> 而不是像以前那样带着内置值静默继续。
 
 ---
 

@@ -41,7 +41,14 @@ APP_TOKEN_PATH = Path.home() / ".gemini" / "jetski-standalone-oauth-token"
 #: 我们自己刷新后的 token 缓存
 CACHE_PATH = config.STATE_DIR / "antigravity_token.json"
 
-#: installed-app 类型的公开客户端凭据（客户端二进制里就是这个，非机密）
+#: installed-app 类型的 OAuth 客户端凭据。
+#:
+#: 二进制里硬编码的是公开的 installed-app 凭据（不是机密，没有它反而不合规），
+#: 但 GitHub 的 push protection 会按 "Google OAuth Client ID" 拦截整条历史，
+#: 所以仓库里不写死，改由环境变量注入（见 config.py 的 _load_env_file）。
+#: 你在 Antigravity 客户端里取到的那一对，写进 .env 即可：
+#:     ANTIGRAVITY_CLIENT_ID=...apps.googleusercontent.com
+#:     ANTIGRAVITY_CLIENT_SECRET=GOCSPX-...
 CLIENT_ID = os.environ.get("ANTIGRAVITY_CLIENT_ID", "").strip()
 CLIENT_SECRET = os.environ.get("ANTIGRAVITY_CLIENT_SECRET", "").strip()
 
