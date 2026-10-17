@@ -8,6 +8,10 @@ state/
 __pycache__/
 *.pyc
 
+# 开发热重载的依赖（hupper）。只有 ./run.sh --dev 时才需要，
+# 生产路径完全不碰它；用 ./run.sh --dev-install 可随时重建。
+.devdeps/
+
 # pnpm 的内容寻址仓库（在 workspace 里就地建出来，578 MB / 4.6 万文件，绝不提交）
 .pnpm-store/
 
@@ -27,3 +31,8 @@ plugin-src/
 *.tgz
 
 .DS_Store
+
+# 快速启动面板构建产物
+panel/.build/
+panel/dist/
+panel/**/ModuleCache/

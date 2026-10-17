@@ -27,13 +27,14 @@ run() {
   fi
 }
 
-run "1/4 限流重置时间解析（离线）" "$PY" tests/test_cooldown.py
-run "2/4 用量统计（离线）" "$PY" tests/test_usage.py
+run "1/5 限流重置时间解析（离线）" "$PY" tests/test_cooldown.py
+run "2/5 用量统计（离线）" "$PY" tests/test_usage.py
+run "3/5 全自动签到（离线）" "$PY" tests/test_autocheckin.py
 
 if curl -s --max-time 3 http://127.0.0.1:8788/healthz > /dev/null 2>&1; then
-  run "3/4 换号契约（故障注入 + 1 次真实请求）" "$PY" tests/test_failover.py
+  run "4/5 换号契约（故障注入 + 1 次真实请求）" "$PY" tests/test_failover.py
   if [ "$SKIP_LIVE" = "0" ]; then
-    run "4/4 harness 兼容性（约 13 次真实请求）" "$PY" tests/test_harness_compat.py
+    run "5/5 harness 兼容性（约 13 次真实请求）" "$PY" tests/test_harness_compat.py
   else
     echo; echo "（已跳过 harness 兼容性探针）"
   fi

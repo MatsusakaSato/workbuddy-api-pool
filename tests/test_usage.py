@@ -65,7 +65,7 @@ def main() -> int:
     print("\n[2] 聚合正确")
     a.record(model="deepseek-v4-pro", account="u1", credit=0.5, tokens=100, total_ms=200)
     a.record(model="deepseek-v4-pro", account="u1", credit=0.25, tokens=50, total_ms=400)
-    a.record(model="gemini-2.5-flash", account="u2", credit=0, tokens=10,
+    a.record(model="glm-5.3-flash", account="u2", credit=0, tokens=10,
              total_ms=100, ok=False, error="boom")
     u = a.usage()
     t = u["totals"]
@@ -82,7 +82,7 @@ def main() -> int:
 
     # ---------------------------------------------------------------- 明细排序
     print("\n[3] 明细按消耗降序")
-    c.ok([m["model"] for m in u["models"]] == ["deepseek-v4-pro", "gemini-2.5-flash"],
+    c.ok([m["model"] for m in u["models"]] == ["deepseek-v4-pro", "glm-5.3-flash"],
          "模型按积分降序", [m["model"] for m in u["models"]])
     c.ok(u["accounts"][0]["account"] == "u1", "账号按积分降序")
 
@@ -185,6 +185,126 @@ def main() -> int:
          "假模型不出现在模型明细", [m["model"] for m in u6["models"]])
     c.ok(any(r.get("test") for r in a6.recent(10)), "最近请求列表仍能看到它（带标记）")
     c.ok(A.Activity(path=p5).usage()["test_requests"] == 1, "标记也持久化，重启后仍排除")
+
+    # ---------------------------------------------------------------- 分位数
+    print("\n[11] 延迟分位数（面板的分布条依赖它）")
+    from gateway.activity import histogram_percentile, _bucket_index, BUCKET_COUNT
+
+    # 直方图估算是**保守**的：返回桶上界，所以只会偏大、不会偏小。
+    # 这条性质很重要 —— 把慢报成快，比把快报成慢危险得多。
+    h = [0] * BUCKET_COUNT
+    for ms in [800, 900, 1000, 1200, 1500, 2000, 2500, 3000, 3500, 4000]:
+        h[_bucket_index(ms)] += 1
+    p50, p90 = histogram_percentile(h, 0.50), histogram_percentile(h, 0.90)
+    real = sorted([800, 900, 1000, 1200, 1500, 2000, 2500, 3000, 3500, 4000])
+    c.ok(p50 >= real[4] and p50 <= real[5] * 1.6, f"p50 落在真实区间附近", f"p50={p50}")
+    c.ok(p90 >= real[8], "p90 不小于真实 p90（保守）", f"p90={p90} 真实={real[8]}")
+    c.ok(histogram_percentile([0] * BUCKET_COUNT, 0.9) == 0, "空直方图返回 0 而不是崩")
+
+    # 端到端：极端值不该被稀释掉
+    p6 = tmp / "分位.jsonl"
+    a7 = A.Activity(path=p6)
+    for ms in [800, 900, 1000, 1200, 1500, 2000, 2500, 3000, 3500, 4000]:
+        a7.record(model="fast", account="u1", total_ms=ms, credit=0.1)
+    for ms in [20000, 60000, 143540]:
+        a7.record(model="slow", account="u2", total_ms=ms, credit=0.1)
+    u7 = a7.usage(days=7)
+    rows = {m["model"]: m for m in u7["models"]}
+    c.ok(rows["fast"]["p50_ms"] <= 2000, "快模型的中位数在 2s 内", rows["fast"]["p50_ms"])
+    c.ok(rows["slow"]["p99_ms"] >= 120000,
+         "慢模型的 p99 把 143s 的长尾暴露出来", rows["slow"]["p99_ms"])
+    c.ok(rows["fast"]["p99_ms"] < rows["slow"]["p50_ms"],
+         "两个模型的分位数确实拉开（分布条画得出区别）")
+    # 143540 若退化成 900000 就是失真，这里卡住上界
+    c.ok(rows["slow"]["p99_ms"] <= 300000,
+         "长尾不会因为桶太粗而虚报到 15 分钟", rows["slow"]["p99_ms"])
+
+    print("\n[12] 分位数 + 逐日序列跨重启不丢")
+    u8 = A.Activity(path=p6).usage(days=7)
+    r8 = {m["model"]: m for m in u8["models"]}
+    c.ok(r8["fast"]["p50_ms"] == rows["fast"]["p50_ms"], "重载后 p50 一致")
+    c.ok(r8["slow"]["p99_ms"] == rows["slow"]["p99_ms"], "重载后 p99 一致")
+
+    # 逐日序列：前端直接把 daily 与 days 配对画趋势线，长度必须严格对齐
+    print("\n[13] 行内趋势线的逐日序列")
+    c.ok(all(len(m["daily"]) == len(u7["days"]) for m in u7["models"]),
+         "每个模型的 daily 长度 == days 长度")
+    c.ok(all(len(m["daily"]) == len(u7["days"]) for m in u7["accounts"]),
+         "每个账号的 daily 长度 == days 长度")
+    fast_daily = rows["fast"]["daily"]
+    c.ok(sum(fast_daily) == rows["fast"]["requests"],
+         "daily 求和等于该模型的请求总数", f"{sum(fast_daily)} vs {rows['fast']['requests']}")
+    c.ok(fast_daily[-1] == 10, "今天的桶是 10", fast_daily[-1])
+    c.ok(all(v == 0 for v in fast_daily[:-1]), "更早的日子补 0（不跳过、不错位）")
+
+    # 测试流量不该污染趋势线
+    print("\n[17] 重启后 seq 不重复（否则前端列表 key 撞车）")
+    p9 = tmp / "序号.jsonl"
+    a11 = A.Activity(path=p9)
+    a11.record(model="m", account="u", total_ms=1)
+    a11.record(model="m", account="u", total_ms=1)
+    first = [i["seq"] for i in a11.recent(10)]
+    # recent() 是**倒序**（最新在前），所以这里是 [2, 1]
+    c.ok(sorted(first) == [1, 2], "首次运行 seq 从 1 递增", first)
+    # 关键：模拟进程重启（新建 Activity 读同一个文件），新记录必须接续而不是从 1 重来
+    a12 = A.Activity(path=p9)
+    a12.record(model="m", account="u", total_ms=1)
+    seqs = [i["seq"] for i in a12.recent(10)]
+    c.ok(len(seqs) == len(set(seqs)), "重启后 seq 全局唯一", seqs)
+    c.ok(max(seqs) == 3, "新记录接续历史最大 seq（不是从 1 重来）", seqs)
+
+    print("\n[15] 每日模型明细带 tokens（折线图 + hover 明细）")
+    p8 = tmp / "明细.jsonl"
+    a9 = A.Activity(path=p8)
+    # 同一天里两个模型的 tokens 差距要能体现"谁吃得多"
+    a9.record(model="big", account="u1", total_ms=100, credit=0, tokens=1000)
+    a9.record(model="big", account="u1", total_ms=100, credit=0, tokens=500)
+    a9.record(model="small", account="u1", total_ms=100, credit=0, tokens=7)
+    u10 = a9.usage(days=3)
+    day = u10["days"][-1]
+    byname = {m["model"]: m for m in day["models"]}
+    c.ok(set(byname) == {"big", "small"}, "当天明细含两个模型", sorted(byname))
+    c.ok(byname["big"]["tokens"] == 1500, "big 的 tokens 累加正确", byname["big"]["tokens"])
+    c.ok(byname["small"]["tokens"] == 7, "small 的 tokens 正确", byname["small"]["tokens"])
+    c.ok(byname["big"]["requests"] == 2, "big 的请求数仍正确", byname["big"]["requests"])
+    # 折线画的是当日总 token，明细必须能加总还原它 —— 对不上就说明口径裂了
+    c.ok(sum(m["tokens"] for m in day["models"]) == day["tokens"],
+         "明细 tokens 之和 == 当日总 tokens",
+         f"{sum(m['tokens'] for m in day['models'])} vs {day['tokens']}")
+    c.ok(sum(m["requests"] for m in day["models"]) == day["requests"],
+         "明细请求数之和 == 当日总请求数")
+    # 按 tokens 降序：hover 面板最关心"谁最耗 token"
+    c.ok([m["model"] for m in day["models"]] == ["big", "small"],
+         "明细按 tokens 降序", [m["model"] for m in day["models"]])
+
+    print("\n[16] 明细同样排除测试流量 + 跨重启不丢")
+    a10 = A.Activity(path=p8)
+    A.mark_test(True)
+    try:
+        a10.record(model="big", account="u1", total_ms=100, credit=0, tokens=99999)
+    finally:
+        A.mark_test(False)
+    u11 = a10.usage(days=3)
+    d2 = u11["days"][-1]
+    c.ok(all(m["tokens"] == 0 or m["model"] != "big" or m["tokens"] == 1500 for m in d2["models"]),
+         "测试流量的 tokens 不进明细",
+         {m["model"]: m["tokens"] for m in d2["models"]})
+    reloaded = A.Activity(path=p8).usage(days=3)
+    c.ok(reloaded["days"][-1]["models"][0]["tokens"] == 1500,
+         "重载后明细 tokens 一致", reloaded["days"][-1]["models"][0]["tokens"])
+
+    print("\n[14] 趋势线同样排除测试流量")
+    p7 = tmp / "趋势.jsonl"
+    a8 = A.Activity(path=p7)
+    a8.record(model="m1", account="u1", total_ms=100, credit=0)
+    A.mark_test(True)
+    try:
+        a8.record(model="m1", account="u1", total_ms=100, credit=0)
+    finally:
+        A.mark_test(False)
+    u9 = a8.usage(days=3)
+    m1 = [m for m in u9["models"] if m["model"] == "m1"][0]
+    c.ok(sum(m1["daily"]) == 1, "测试流量不进趋势线", sum(m1["daily"]))
 
     print(f"\n通过 {c.p} / {c.p + c.f}")
     return 1 if c.f else 0

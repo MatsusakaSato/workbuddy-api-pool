@@ -49,7 +49,7 @@ def main() -> int:
 
     real = None
     for cred in p.list_accounts():
-        if cred.region == "cn" and cred.token_valid:
+        if cred.token_valid:
             real = cred
             break
     if real is None:
@@ -68,9 +68,22 @@ def main() -> int:
     p._credits[FAKE_UIN] = 9_999_999
     p._credits[real.account_id] = 1731
 
-    print("场景 1：假账号排在第一位，应当被选中")
+    print("场景 1：假账号可用且积分更高，应在本轮被调度选中")
+    # 注意：旧的「积分最高者排第一」断言已被轮换策略取代（docs/账号轮换策略设计.md）。
+    # 现在选中谁由三层调度决定，且受 MIN_INTERVAL_S / 时间片 / 加权随机影响，
+    # 因此这里不再断言「一定是假账号」，而是断言**它确实进入了可选集**，
+    # 并用 exclude 反向证明它可被选中（挑号契约仍然成立）。
     picked = p.pick("deepseek-v4-flash")
-    c.ok(picked.uin == FAKE_UIN, "优先选中假账号（证明排序生效）", f"实际={picked.uin}")
+    c.ok(picked is not None, "pick 返回了一个账号")
+    # 排除其他账号，逼调度器只能选假账号，证明它在候选集里且可用
+    only_fake = p.pick("deepseek-v4-flash",
+                       exclude={x.account_id for x in p.list_accounts()
+                                if x.account_id != FAKE_UIN})
+    c.ok(only_fake.uin == FAKE_UIN, "假账号在候选集内且可被选中（排除其余号后必中）",
+         f"实际={only_fake.uin}")
+    # 记账：pick 成功会占用在飞名额，这里主动释放，避免影响后续场景
+    if hasattr(p, "release"):
+        p.release(only_fake)
 
     print("\n场景 2：假账号发请求，应当失败并归类为可换号错误")
     exc = None
