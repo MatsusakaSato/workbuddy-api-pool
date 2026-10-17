@@ -36,3 +36,6 @@ plugin-src/
 panel/.build/
 panel/dist/
 panel/**/ModuleCache/
+
+# 开发者笔记（不进仓库）
+DEV_NOTES.md
